@@ -1,0 +1,3180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>痛包模拟器</title>
+<script>
+  // 设备判断：手机 / 电脑（在 <html> 上加类，供 CSS 与 JS 使用）
+  (function(){
+    var ua = navigator.userAgent || '';
+    var isMobile = /Android|iPhone|iPad|iPod|Mobile|Mobi/i.test(ua) ||
+      (window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.innerWidth <= 1024);
+    document.documentElement.classList.toggle('is-mobile', !!isMobile);
+    document.documentElement.classList.toggle('is-desktop', !isMobile);
+    window.__isMobile = !!isMobile;
+  })();
+</script>
+<style>
+  :root{
+    --bg:#1e1f24; --panel:#26272e; --panel2:#2e3038; --line:#3a3d47;
+    --text:#e8e9ed; --muted:#9aa0ad; --accent:#5b8cff; --accent2:#8f6bff;
+    --danger:#ff5f6b; --ok:#3ecf8e; --warn:#ffb454;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; height:100%; }
+  body{
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(91,140,255,.08), transparent 60%),
+      radial-gradient(1000px 500px at -10% 110%, rgba(143,107,255,.07), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    font-size:14px; overflow:hidden;
+  }
+  header{
+    height:46px; display:flex; align-items:center; gap:14px;
+    padding:0 18px;
+    background:rgba(38,39,46,.78);
+    -webkit-backdrop-filter:blur(14px) saturate(1.15);
+    backdrop-filter:blur(14px) saturate(1.15);
+    border-bottom:1px solid rgba(255,255,255,.07);
+    position:sticky; top:0; z-index:40; flex:none;
+  }
+  header h1{ font-size:17px; margin:0; font-weight:600; letter-spacing:.5px; }
+  header .sub{ display:none; }
+  header .spacer{ flex:1; }
+  header .btn{ display:none; }
+  .btn{
+    border:1px solid var(--line); background:var(--panel2); color:var(--text);
+    padding:7px 13px; border-radius:7px; cursor:pointer; font-size:13px;
+    transition:.15s; white-space:nowrap;
+  }
+  .btn:hover{ border-color:var(--accent); color:#fff; }
+  .btn.primary{ background:linear-gradient(180deg, #6f9bff, var(--accent)); border-color:rgba(91,140,255,.6); color:#fff; font-weight:600; box-shadow:0 2px 10px rgba(91,140,255,.28); }
+  .btn.primary:hover{ filter:brightness(1.08); box-shadow:0 3px 14px rgba(91,140,255,.4); }
+  .btn.warn{ background:var(--danger); border-color:var(--danger); color:#fff; }
+  .btn.ghost{ background:transparent; }
+  .btn:disabled{ opacity:.45; cursor:not-allowed; }
+  .btn.small{ padding:4px 9px; font-size:12px; }
+
+  main{ display:flex; height:calc(100% - 46px); }
+  #canvasWrap{
+    flex:1; position:relative; overflow:auto; background:#141519;
+    display:flex; align-items:flex-start; justify-content:flex-start;
+    padding:18px;
+  }
+  #stage{ position:relative; margin:auto; }
+  #canvas{
+    display:block; border-radius:6px; touch-action:none;
+    -webkit-tap-highlight-color:transparent; -webkit-touch-callout:none; user-select:none;
+    box-shadow:0 6px 30px rgba(0,0,0,.5); background:#0c0d10;
+  }
+  #canvas.dragging{ cursor:grabbing !important; }
+  #zoomBar{
+    position:fixed; right:356px; bottom:16px; z-index:30;
+    display:flex; align-items:center; gap:4px;
+    background:rgba(30,31,36,.72); border:1px solid rgba(255,255,255,.08);
+    -webkit-backdrop-filter:blur(10px) saturate(1.1);
+    backdrop-filter:blur(10px) saturate(1.1);
+    border-radius:10px; padding:5px 8px; box-shadow:0 4px 18px rgba(0,0,0,.35);
+  }
+  #zoomBar .btn{ padding:4px 8px; font-size:13px; }
+  #zoomBar .val{ min-width:46px; text-align:center; font-variant-numeric:tabular-nums; color:var(--muted); font-size:12px; }
+  #zoomBar .btn.on{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  #stageHint{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    pointer-events:none; color:var(--muted); font-size:14px; text-align:center;
+  }
+  #brushCursor{
+    position:absolute; border:1.5px solid rgba(255,255,255,.95); border-radius:50%;
+    pointer-events:none; display:none; transform:translate(-50%,-50%);
+    box-shadow:0 0 0 1px rgba(0,0,0,.6); z-index:5;
+  }
+  #sidebar{
+    width:340px; min-width:340px;
+    background:rgba(38,39,46,.72);
+    -webkit-backdrop-filter:blur(14px) saturate(1.1);
+    backdrop-filter:blur(14px) saturate(1.1);
+    border-left:1px solid rgba(255,255,255,.07);
+    overflow-y:auto; padding:14px;
+  }
+  .credit{
+    text-align:center; color:var(--muted); opacity:.55;
+    font-size:11px; padding:10px 0 2px; user-select:none;
+  }
+  #mobileSheetHead{ display:none; }
+  #mobileItemBar{ display:none; }
+  #btnFloatSel{ display:none; }
+  #sheetPull{ display:none; }
+  /* 桌面端：步骤条紧凑地放在顶栏右侧 */
+  #stepBar{
+    display:flex; align-items:center; gap:0;
+  }
+  #stepBar .s{
+    border:none; background:transparent; color:var(--muted);
+    font-size:12px; padding:4px 6px; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #stepBar .s.done{ color:var(--ok); }
+  #stepBar .s.done::before{ content:'✓'; margin-right:2px; }
+  #stepBar .s.current{
+    color:var(--accent); font-weight:700; background:rgba(91,140,255,.14); border-radius:6px;
+  }
+  #stepBar .arr{ color:#ffffff; font-size:11px; flex:none; }
+  #btnUndoMobile{
+    display:block; position:fixed; top:54px; left:10px; z-index:30;
+    padding:6px 10px; border-radius:9px; font-size:16px;
+  }
+  #btnRedoMobile{
+    display:block; position:fixed; top:54px; left:56px; z-index:30;
+    padding:6px 10px; border-radius:9px; font-size:16px;
+  }
+  .card{
+    background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,0)), var(--panel2);
+    border:1px solid rgba(255,255,255,.08); border-radius:10px;
+    box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 4px 14px rgba(0,0,0,.18);
+    padding:12px; margin-bottom:12px;
+  }
+  .card h3{
+    margin:0 0 8px; font-size:13px; font-weight:600; color:#cdd3e0;
+    display:flex; align-items:center; gap:7px;
+  }
+  .step-num{
+    display:inline-flex; width:20px; height:20px; border-radius:50%;
+    background:var(--accent); color:#fff; align-items:center; justify-content:center;
+    font-size:11px; font-weight:700; flex:none;
+  }
+  .hint{ color:var(--muted); font-size:12px; line-height:1.6; }
+  .row{ display:flex; gap:8px; margin-top:9px; flex-wrap:wrap; align-items:center; }
+  .col{ display:flex; flex-direction:column; gap:8px; }
+  label{ font-size:12px; color:var(--muted); }
+  input[type=number], input[type=text], select{
+    background:#1a1b21; border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:6px 8px; font-size:13px; width:100%;
+  }
+  input[type=number]{ width:86px; }
+  input:focus, select:focus{ outline:none; border-color:var(--accent); }
+  .seg{ display:flex; gap:6px; }
+  .seg .btn{ flex:1; padding:6px 4px; }
+  .seg .btn.active{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .field{ display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .field > span{ color:var(--muted); font-size:12px; min-width:56px; }
+  .presets{ display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  .chip{
+    background:#23252d; border:1px solid var(--line); color:#cfd4e0;
+    border-radius:14px; padding:3px 10px; font-size:12px; cursor:pointer;
+    transition:background .15s, border-color .15s;
+  }
+  .chip:hover{ background:#2b2e38; border-color:#4a4f5e; }
+  .scale-info{
+    background:rgba(91,140,255,.12); border:1px solid rgba(91,140,255,.35);
+    color:#bcd0ff; border-radius:6px; padding:8px 10px; font-size:12px; margin-top:8px;
+  }
+  .range-row{ display:flex; align-items:center; gap:10px; margin-top:8px; }
+  .range-row input[type=range]{ flex:1; }
+  .range-row .val{ color:#fff; min-width:34px; text-align:right; font-variant-numeric:tabular-nums; }
+
+  /* layers */
+  #layersList{ display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+  .layer-row{
+    display:flex; align-items:center; gap:8px; background:#1a1b21; border:1px solid var(--line);
+    border-radius:7px; padding:6px; cursor:grab;
+  }
+  .layer-row.dragging{ opacity:.4; }
+  .layer-row.drop-above{ box-shadow:0 -2px 0 var(--accent); }
+  .layer-row.drop-below{ box-shadow:0 2px 0 var(--accent); }
+  .layer-row.selected{ border-color:var(--accent); background:#20243a; }
+  .layer-thumb{
+    width:34px; height:34px; border-radius:5px; background:#0c0d10 center/cover no-repeat;
+    flex:none; border:1px solid var(--line);
+  }
+  .layer-name{ flex:1; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .layer-icon{
+    width:24px; height:24px; border:none; background:transparent; color:var(--muted);
+    cursor:pointer; font-size:14px; border-radius:5px; flex:none;
+  }
+  .layer-icon:hover{ background:#2e3038; color:#fff; }
+  .layer-icon.off{ opacity:.35; }
+
+  /* modal */
+  .modal{
+    position:fixed; inset:0; background:rgba(0,0,0,.6); display:none;
+    align-items:center; justify-content:center; z-index:50;
+  }
+  .modal.show{ display:flex; }
+  .modal-box{
+    width:640px; max-width:94vw; max-height:94vh; overflow-y:auto;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; padding:18px;
+  }
+  .modal-box h3{ margin:0 0 12px; }
+  #modalPreview{ display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  #modalPreview img{
+    width:60px; height:60px; object-fit:cover; border-radius:7px;
+    background:
+      repeating-conic-gradient(#e4e4ec 0% 25%, #f7f7fb 0% 50%) 0 0 / 16px 16px;
+    border:1px solid var(--line);
+  }
+  #modalPreview .nm{ font-size:12px; color:var(--muted); word-break:break-all; }
+  .radio-group{ display:flex; gap:14px; margin-top:4px; flex-wrap:wrap; }
+  .radio-group label{ display:flex; align-items:center; gap:5px; color:var(--text); font-size:13px; cursor:pointer; }
+  #freeMarkWrap{
+    position:relative; border:1px solid var(--line); border-radius:7px;
+    background:#14151a; overflow:hidden; display:flex; align-items:center; justify-content:center;
+    min-height:300px; margin-top:8px;
+  }
+  #freeMarkCanvas{ display:block; max-width:100%; max-height:460px; cursor:crosshair; touch-action:none; -webkit-tap-highlight-color:transparent; -webkit-touch-callout:none; user-select:none; }
+  #freeMarkHint{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    pointer-events:none; color:var(--muted); font-size:12px;
+  }
+  #cropWrap{
+    position:relative; border:1px solid var(--line); border-radius:7px;
+    background:#14151a; overflow:hidden; display:flex; align-items:center; justify-content:center;
+    min-height:240px;
+  }
+  #cropCanvas{ display:block; max-width:100%; max-height:460px; touch-action:none; -webkit-tap-highlight-color:transparent; user-select:none; cursor:crosshair; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+
+  .toast{
+    position:fixed; bottom:26px; left:50%; transform:translateX(-50%);
+    background:#2b2d36; border:1px solid var(--line); color:var(--text);
+    padding:10px 18px; border-radius:8px; font-size:13px; z-index:99;
+    box-shadow:0 4px 20px rgba(0,0,0,.5); opacity:0; transition:.25s; pointer-events:none;
+    max-width:80vw;
+  }
+  .toast.show{ opacity:1; }
+  .hidden{ display:none !important; }
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb{ background:#3a3d47; border-radius:6px; }
+
+  /* ============ 手机布局（App 风格） ============ */
+  html.is-mobile body{ overflow:hidden; }
+  html.is-mobile header{
+    height:46px; flex-wrap:nowrap; padding:0 12px; gap:6px;
+    position:sticky; top:0; z-index:40; flex:none;
+  }
+  html.is-mobile header h1{ font-size:15px; }
+  html.is-mobile header .sub{ display:none; }
+  html.is-mobile header .spacer{ flex:1; }
+  html.is-mobile header .btn{ display:none; }
+  html.is-mobile main{ flex-direction:column; height:calc(100% - 78px); }
+  html.is-mobile #canvasWrap{
+    flex:1; height:auto; min-height:0; padding:10px;
+  }
+  html.is-mobile #sidebar{
+    position:fixed; left:0; right:0; bottom:0; z-index:38;
+    width:auto; min-width:0; max-height:60vh; overflow-y:auto;
+    border-left:none; border-radius:16px 16px 0 0;
+    padding:0 12px 16px; background:var(--panel);
+    transform:translateY(110%); transition:transform .22s ease;
+    box-shadow:0 -6px 24px rgba(0,0,0,.5);
+  }
+  html.is-mobile #sidebar.sheet-open{ transform:translateY(0); }
+  html.is-mobile #mobileSheetHead{
+    display:flex; align-items:center; gap:10px;
+    position:sticky; top:0; z-index:2; background:var(--panel);
+    padding:14px 2px 8px;
+  }
+  html.is-mobile #mobileSheetHead{
+    touch-action:none; -webkit-user-select:none; user-select:none;
+  }
+  html.is-mobile #mobileSheetHead .grab{
+    position:absolute; left:50%; top:6px; transform:translateX(-50%);
+    width:44px; height:5px; border-radius:3px;
+    background:rgba(255,255,255,.6); box-shadow:0 0 0 1px rgba(0,0,0,.25);
+  }
+  html.is-mobile #mobileSheetHead #mobileSheetTitle{ flex:1; font-weight:600; font-size:13px; }
+  html.is-mobile #mobileSheetHead #btnSheetClose{ flex:none; }
+  html.is-mobile #zoomBar{ right:10px; top:86px; bottom:auto; }
+  /* 手机端弹窗压缩到一屏：异形抠图的所有操作无需滚动 */
+  html.is-mobile .modal-box{
+    width:96vw; max-width:96vw; max-height:97vh; padding:8px 10px;
+  }
+  html.is-mobile .modal-box h3{ margin:0 0 8px; font-size:14px; }
+  html.is-mobile #modalPreview{ margin-bottom:8px; gap:8px; }
+  html.is-mobile #modalPreview img{ width:44px; height:44px; }
+  html.is-mobile .radio-group{ gap:8px; margin-top:2px; }
+  html.is-mobile .radio-group label{ font-size:12px; }
+  html.is-mobile .presets{ margin-top:4px; gap:4px; }
+  html.is-mobile .chip{ padding:2px 8px; font-size:11px; }
+  html.is-mobile .field{ margin-top:6px; }
+  html.is-mobile .field input[type=number]{ padding:5px 7px; }
+  /* 异形抠图：隐藏长说明文字，画布自适应压缩，其余控件收紧 */
+  html.is-mobile #freeDims .hint{ display:none; }
+  html.is-mobile #freeDims .row{ margin-top:6px; }
+  html.is-mobile #freeDims .range-row{ margin-top:4px; }
+  html.is-mobile #freeTools .btn{ padding:5px 2px; font-size:12px; }
+  html.is-mobile #freeSelMode{ padding:5px 6px; font-size:12px; }
+  html.is-mobile #freeMarkWrap{
+    min-height:0; margin-top:6px;
+    height:min(36vh, 320px); max-height:36vh;
+  }
+  html.is-mobile #freeMarkCanvas{ max-width:100%; max-height:100%; }
+  html.is-mobile #cropWrap{
+    min-height:0; height:min(50vh, 420px); max-height:50vh;
+  }
+  html.is-mobile #cropCanvas{ max-width:100%; max-height:100%; }
+  html.is-mobile .modal-actions{ margin-top:10px; }
+  html.is-mobile .modal-actions .btn{ flex:1; }
+  html.is-mobile #modalScale{ margin-top:6px; }
+  html.is-mobile .layer-row{ padding:8px; }
+  html.is-mobile .group-hide{ display:none !important; }
+  html.is-mobile #stageHint{ pointer-events:auto; cursor:pointer; }
+  html.is-mobile #stageHint span{
+    padding:14px 22px; border:1.5px dashed var(--line); border-radius:12px;
+    background:rgba(30,31,36,.8); color:#cdd3e0; font-size:15px;
+  }
+  html.is-mobile #stageHint span:active{ border-color:var(--accent); color:#fff; background:rgba(91,140,255,.16); }
+  /* 选中装饰品的悬浮工具条（底部） */
+  html.is-mobile #mobileItemBar{
+    display:flex; align-items:center; gap:8px;
+    position:fixed; left:8px; right:8px; bottom:8px; z-index:36;
+    background:rgba(30,31,36,.94); border:1px solid var(--line);
+    border-radius:12px; padding:8px 10px; box-shadow:0 4px 16px rgba(0,0,0,.4);
+  }
+  html.is-mobile #mobileItemBar .lbl{ font-size:12px; color:var(--muted); white-space:nowrap; }
+  html.is-mobile #mobileItemBar input[type=range]{ flex:1; }
+  html.is-mobile #mobileItemBar .val{ color:#fff; font-size:12px; min-width:30px; text-align:right; }
+  /* 手机端精简：隐藏长说明文字、属性卡 */
+  html.is-mobile .card .hint{ display:none; }
+  html.is-mobile #propsCard{ display:none !important; }
+  /* 手机端悬浮撤回按钮（左上角，与缩放条对称） */
+  html.is-mobile #btnUndoMobile{
+    display:block; position:fixed; top:86px; left:10px; z-index:30;
+    padding:6px 10px; border-radius:9px; font-size:16px;
+  }
+  html.is-mobile #btnRedoMobile{
+    display:block; position:fixed; top:86px; left:56px; z-index:30;
+    padding:6px 10px; border-radius:9px; font-size:16px;
+  }
+  /* 浮动闭合/确定选区按钮 */
+  html.is-mobile #btnFloatSel{
+    position:fixed; bottom:12px; right:12px; z-index:37;
+    background:var(--accent); color:#fff; border:none;
+    border-radius:18px; padding:10px 16px; font-size:14px; font-weight:600;
+    box-shadow:0 4px 16px rgba(0,0,0,.4);
+  }
+  /* 底部上拉把手（与窗口顶部把手同款样式） */
+  html.is-mobile #sheetPull{
+    display:block; position:fixed; bottom:6px; left:50%; transform:translateX(-50%);
+    z-index:37; width:44px; height:22px; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+    touch-action:none; -webkit-user-select:none; user-select:none;
+  }
+  html.is-mobile #sheetPull span{
+    position:absolute; left:50%; top:4px; transform:translateX(-50%);
+    width:44px; height:5px; border-radius:3px;
+    background:rgba(255,255,255,.6); box-shadow:0 0 0 1px rgba(0,0,0,.25);
+  }
+  /* 步骤条（手机端：从顶栏拉出来，整行显示在标题栏下方） */
+  html.is-mobile #stepBar{
+    display:flex; align-items:center; justify-content:space-between;
+    position:fixed; top:46px; left:0; right:0; z-index:39;
+    height:32px; background:var(--panel); border-bottom:1px solid var(--line);
+    padding:0 10px; gap:2px;
+  }
+  html.is-mobile #stepBar .s{
+    flex:1; border:none; background:transparent; color:var(--muted);
+    font-size:12px; padding:4px 2px; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  html.is-mobile #stepBar .s.done{ color:var(--ok); }
+  html.is-mobile #stepBar .s.done::before{ content:'✓'; margin-right:2px; }
+  html.is-mobile #stepBar .s.current{
+    color:var(--accent); font-weight:700; background:rgba(91,140,255,.14); border-radius:6px;
+  }
+  html.is-mobile #stepBar .arr{ color:#ffffff; font-size:12px; flex:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>痛包模拟器</h1>
+  <span class="sub">按 ①→⑤ 步骤操作</span>
+  <div class="spacer"></div>
+  <div id="stepBar">
+    <button class="s" data-step="1">导入</button><span class="arr">›</span>
+    <button class="s" data-step="2">标定</button><span class="arr">›</span>
+    <button class="s" data-step="3">选区</button><span class="arr">›</span>
+    <button class="s" data-step="4">排版</button><span class="arr">›</span>
+    <button class="s" data-step="5">导出</button>
+  </div>
+  <button class="btn" id="btnLoadBg">① 导入痛包正视图</button>
+  <button class="btn" id="btnLoadItem">④ 导入谷子/装饰品</button>
+  <button class="btn" id="btnUndo" title="撤回上一步 (Ctrl+Z)">↶ 撤回</button>
+  <button class="btn" id="btnRedo" title="重做 (Ctrl+Shift+Z)">↷ 重做</button>
+  <button class="btn primary" id="btnExport">⑤ 导出 PNG</button>
+</header>
+
+<main>
+  <div id="canvasWrap">
+    <div id="stage">
+      <canvas id="canvas" width="900" height="600"></canvas>
+      <div id="stageHint"><span id="stageHintText">请先导入痛包正视图</span></div>
+      <div id="brushCursor"></div>
+    </div>
+  </div>
+
+  <div id="zoomBar">
+    <button class="btn" id="zoomOut" title="缩小">−</button>
+    <span class="val" id="zoomVal">100%</span>
+    <button class="btn" id="zoomIn" title="放大">＋</button>
+    <button class="btn on" id="btnGridZoom" title="显示/隐藏井字格参考线">网格</button>
+  </div>
+
+  <button class="btn" id="btnUndoMobile" title="撤回上一步">↶</button>
+  <button class="btn" id="btnRedoMobile" title="重做">↷</button>
+
+  <button class="btn" id="btnFloatSel">闭合选区</button>
+
+  <div id="sheetPull" title="上拉打开面板"><span></span></div>
+
+  <div id="mobileItemBar" class="hidden">
+    <span class="lbl">旋转</span>
+    <input type="range" id="mobileRotRange" min="-180" max="180" value="0">
+    <span class="val" id="mobileRotVal">0°</span>
+    <button class="btn small" id="btnMobileDup">复制</button>
+    <button class="btn small warn" id="btnMobileDel">删除</button>
+  </div>
+
+  <aside id="sidebar">
+    <div id="mobileSheetHead">
+      <span class="grab"></span>
+      <span id="mobileSheetTitle">图层</span>
+      <button class="layer-icon" id="btnSheetClose" title="收起">✕</button>
+    </div>
+    <div class="card" data-group="s1">
+      <h3><span class="step-num">1</span>导入痛包正视图</h3>
+      <div class="hint">选择一张痛包正视图照片（正面、清晰、无遮挡）。</div>
+      <div class="row">
+        <button class="btn" id="btnLoadBg2">选择图片</button>
+      </div>
+    </div>
+
+    <div class="card" data-group="s2">
+      <h3><span class="step-num">2</span>标定比例</h3>
+      <div class="hint">点击「开始标定」，在图上按住鼠标拖出一条线，标记<b>痛层（透明窗）的宽度</b>。</div>
+      <div class="row">
+        <button class="btn" id="btnCalibrate">开始标定</button>
+        <button class="btn ghost small" id="btnCancelCalibrate">取消</button>
+      </div>
+      <div id="calibResult" class="hidden">
+        <div class="field"><span>标记长度</span><b id="calibPx">0</b><span>px</span></div>
+        <div class="field">
+          <span>实际宽度</span>
+          <input type="number" id="inCm" min="0" step="0.1" placeholder="厘米">
+          <span>cm</span>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="btnApplyScale">应用比例</button>
+        </div>
+      </div>
+      <div class="scale-info hidden" id="scaleInfo">未标定</div>
+    </div>
+
+    <div class="card" data-group="s3">
+      <h3><span class="step-num">3</span>选择痛层区域</h3>
+      <div class="hint">用「快速选择」笔刷在痛层上涂抹（自动吸附相近颜色），或用「画笔」直接涂抹、用「套索」点击连线。谷子和装饰品只会显示在这个区域内。</div>
+      <div class="row seg" id="selTools">
+        <button class="btn" data-tool="paint">画笔</button>
+        <button class="btn" data-tool="quick">快速选择</button>
+        <button class="btn" data-tool="lasso">多边形套索</button>
+      </div>
+      <div class="hidden" id="quickRow">
+        <div class="range-row">
+          <span class="hint">容差</span>
+          <input type="range" id="tolerance" min="0" max="100" value="30">
+          <span class="val" id="toleranceVal">30</span>
+        </div>
+      </div>
+      <div class="hidden" id="brushRow">
+        <div class="range-row">
+          <span class="hint">笔刷</span>
+          <input type="range" id="brushSize" min="10" max="300" value="80">
+          <span class="val" id="brushSizeVal">80</span>
+        </div>
+      </div>
+      <div class="row">
+        <select id="selMode" style="flex:1">
+          <option value="new">新建选区</option>
+          <option value="add">添加到选区</option>
+          <option value="sub">从选区减去</option>
+        </select>
+      </div>
+      <div class="row">
+        <button class="btn small" id="btnClearSel" style="flex:1">清除选区</button>
+        <button class="btn small hidden" id="btnCloseLasso">闭合选区</button>
+        <button class="btn ghost small hidden" id="btnCancelLasso">取消</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnConfirmSel" style="flex:1">确定痛层区域</button>
+      </div>
+    </div>
+
+    <div class="card" data-group="s4">
+      <h3><span class="step-num">4</span>图层（谷子/装饰品）</h3>
+      <div class="hint">每个导入的图片是一个图层。点击选中后可拖动/旋转；在上面的图层会遮挡下面。拖动图层项可排序。</div>
+      <div class="row">
+        <button class="btn" id="btnLoadItem2">导入图片…</button>
+      </div>
+      <div id="layersList"></div>
+    </div>
+
+    <div class="card hidden" id="propsCard" data-group="s4">
+      <h3>选中图层</h3>
+      <div class="hint" id="propsName"></div>
+      <div class="hint" id="propsSize"></div>
+      <div class="field"><span>旋转</span>
+        <input type="range" id="rotRange" min="-180" max="180" value="0" style="flex:1">
+        <span class="val" id="rotVal">0°</span>
+      </div>
+      <div class="field"><span>X (px)</span><input type="number" id="inX" step="1"></div>
+      <div class="field"><span>Y (px)</span><input type="number" id="inY" step="1"></div>
+      <div class="row">
+        <button class="btn" id="btnDupItem">复制图层</button>
+        <button class="btn warn" id="btnDeleteItem">删除该图层</button>
+        <button class="btn ghost" id="btnResetRot">回正</button>
+      </div>
+    </div>
+
+    <div class="card" data-group="s5">
+      <h3><span class="step-num">5</span>导出</h3>
+      <div class="hint">位置确定后，导出最终合成图（痛包照片 + 痛层内的谷子/装饰品）。</div>
+      <div class="field">
+        <span>背景</span>
+        <select id="exportMode">
+          <option value="withbg">带痛包背景</option>
+          <option value="transparent">透明背景（仅谷子）</option>
+        </select>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="btnExport2">导出 PNG 图片</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnSaveProject">保存项目</button>
+        <button class="btn" id="btnLoadProject">打开项目</button>
+      </div>
+    </div>
+    <div class="credit">© 2026 紫苏 · 痛包模拟器</div>
+  </aside>
+</main>
+
+<!-- 添加图层弹窗 -->
+<div id="modal" class="modal">
+  <div class="modal-box">
+    <h3>添加谷子 / 装饰品</h3>
+    <div id="modalPreview"></div>
+    <div class="radio-group">
+      <label><input type="radio" name="shape" value="circle" checked> 圆形（徽章/吧唧）</label>
+      <label><input type="radio" name="shape" value="rect"> 长方形（装饰品/卡）</label>
+      <label><input type="radio" name="shape" value="free"> 其他形状（异形）</label>
+    </div>
+    <div class="field" id="circleDims">
+      <span>直径</span><input type="number" id="inD" min="0" step="0.1" placeholder="cm"><span>cm</span>
+    </div>
+    <div class="presets" id="circlePresets">
+      <button type="button" class="chip" data-d="4.4">4.4</button>
+      <button type="button" class="chip" data-d="5.8">5.8</button>
+      <button type="button" class="chip" data-d="6.5">6.5</button>
+      <button type="button" class="chip" data-d="7.5">7.5</button>
+      <button type="button" class="chip" data-d="10">10</button>
+      <button type="button" class="chip" data-d="16">16</button>
+    </div>
+    <div class="field hidden" id="rectDims">
+      <span>横长</span><input type="number" id="inW" min="0" step="0.1" placeholder="cm">
+      <span>竖长</span><input type="number" id="inH" min="0" step="0.1" placeholder="cm"><span>cm</span>
+    </div>
+    <div class="presets hidden" id="rectPresets">
+      <button type="button" class="chip" data-w="5" data-h="5">5×5 方吧唧</button>
+      <button type="button" class="chip" data-w="5.4" data-h="8.5">5.4×8.5 小卡</button>
+      <button type="button" class="chip" data-w="7.6" data-h="10.2">7.6×10.2 大拍立得</button>
+      <button type="button" class="chip" data-w="10" data-h="10">10×10 方卡</button>
+      <button type="button" class="chip" data-w="10" data-h="15">10×15 明信片</button>
+      <button type="button" class="chip" data-w="21" data-h="7">21×7 镭射票</button>
+    </div>
+    <div class="hidden" id="freeDims">
+      <div class="hint" style="margin:6px 0">① 用「标长」拖线标记物品实际长度并填厘米；② 用「快速选择 / 套索 / 画笔」抠出物品；③ 确认添加。建议透明背景 PNG。</div>
+      <div class="row seg" id="freeTools">
+        <button class="btn small active" data-ftool="mark">标长</button>
+        <button class="btn small" data-ftool="quick">快速选择</button>
+        <button class="btn small" data-ftool="lasso">套索</button>
+        <button class="btn small" data-ftool="paint">画笔</button>
+      </div>
+      <div class="hidden" id="freeQuickRow">
+        <div class="range-row">
+          <span class="hint">容差</span>
+          <input type="range" id="freeTolerance" min="0" max="100" value="30">
+          <span class="val" id="freeToleranceVal">30</span>
+        </div>
+      </div>
+      <div class="hidden" id="freeBrushRow">
+        <div class="range-row">
+          <span class="hint">笔刷</span>
+          <input type="range" id="freeBrushSize" min="10" max="300" value="60">
+          <span class="val" id="freeBrushSizeVal">60</span>
+        </div>
+      </div>
+      <div class="row">
+        <select id="freeSelMode" style="flex:1">
+          <option value="new">新建选区</option>
+          <option value="add">添加到选区</option>
+          <option value="sub">从选区减去</option>
+        </select>
+        <button class="btn small" id="btnFreeClearSel">清除抠图</button>
+        <button class="btn small hidden" id="btnFreeCloseLasso">闭合选区</button>
+      </div>
+      <div id="freeMarkWrap">
+        <canvas id="freeMarkCanvas" width="560" height="400"></canvas>
+        <div id="freeMarkHint">正在加载图片…</div>
+      </div>
+      <div class="field" style="margin-top:8px">
+        <span>该长度</span><input type="number" id="inFreeCm" min="0" step="0.1" placeholder="cm"><span>cm</span>
+      </div>
+    </div>
+    <div class="field" id="fitField">
+      <span>填充</span>
+      <select id="inFit">
+        <option value="cover">等比覆盖（可能裁切）</option>
+        <option value="stretch">拉伸填满（可能变形）</option>
+      </select>
+    </div>
+    <div class="scale-info" id="modalScale"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="btnModalCancel">取消</button>
+      <button class="btn primary" id="btnModalConfirm">确认添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- 裁剪图片弹窗 -->
+<div id="cropModal" class="modal">
+  <div class="modal-box">
+    <h3>裁剪图片</h3>
+    <div id="cropWrap">
+      <canvas id="cropCanvas"></canvas>
+    </div>
+    <div class="hint" style="margin-top:6px">拖动方框内部可移动，拖动四角可调整裁剪范围</div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="btnCropCancel">取消</button>
+      <button class="btn primary" id="btnCropConfirm">确认裁剪</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<input type="file" id="fileBg" accept="image/*" hidden>
+<input type="file" id="fileItems" accept="image/*" multiple hidden>
+<input type="file" id="fileProject" accept=".json,application/json" hidden>
+
+<script>
+"use strict";
+/* ============ 全局状态 ============ */
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const isMobile = !!window.__isMobile;   // 手机/电脑
+
+// 双指手势（手机平移/缩放画布）
+const canvasPointers = new Map();       // pointerId -> {x,y}
+let gesture = null;                     // {startDist, startMid, startScrollL, startScrollT, startZoom}
+
+let bgImage = null;          // HTMLImageElement 痛包图片
+let bgCanvas = null;         // 存放痛包图
+let bgCtx = null;
+let bgImageData = null;      // 缓存像素，用于快速选择/套索
+
+let scale = null;            // px / cm
+let maskData = null;         // Uint8Array(w*h) 1=选区
+let maskCanvas = null;       // 白=选区 的蒙版
+let tintCanvas = null;       // 红色半透明选区（编辑中）
+let outsideTintCanvas = null; // 蓝色半透明选区外（已确定）
+let contourPath = null;      // 选区轮廓 Path2D
+let selConfirmed = false;    // 痛层区域是否已确定
+
+let items = [];              // 图层，index0=最底层，最后=最顶层
+let selectedId = null;
+
+// 撤回历史（完整状态快照，最多保留 50 步）
+let undoStack = [];
+let redoStack = [];
+function makeSnapshot(){
+  return {
+    items: items.map(it => ({...it})),
+    scale: scale,
+    calib: calib ? {...calib} : null,
+    bgImage: bgImage,
+    bgCanvas: bgCanvas,
+    bgImageData: bgImageData,
+    canvasW: canvas.width,
+    canvasH: canvas.height,
+    selectedId: selectedId,
+    tool: tool,
+    lassoPoints: lassoPoints.map(p => ({...p})),
+    mask: undefined   // undefined=不还原选区；null=清空选区；Uint8Array=还原该选区
+  };
+}
+function pushUndo(){          // 图层/标定/导入等：不还原选区
+  redoStack = [];
+  undoStack.push(makeSnapshot());
+  if(undoStack.length > 50) undoStack.shift();
+}
+function pushUndoMask(){      // 选区操作：还原选区
+  redoStack = [];
+  const s = makeSnapshot();
+  s.mask = maskData ? maskData.slice() : null;
+  undoStack.push(s);
+  if(undoStack.length > 50) undoStack.shift();
+}
+function undo(){
+  if(!undoStack.length){ toast('没有可撤回的操作'); return; }
+  redoStack.push(makeSnapshot());
+  if(redoStack.length > 50) redoStack.shift();
+  restoreSnapshot(undoStack.pop());
+  toast('已撤回上一步');
+}
+function redo(){
+  if(!redoStack.length){ toast('没有可重做的操作'); return; }
+  undoStack.push(makeSnapshot());
+  if(undoStack.length > 50) undoStack.shift();
+  restoreSnapshot(redoStack.pop());
+  toast('已重做');
+}
+function restoreSnapshot(s){
+  bgImage = s.bgImage;
+  bgCanvas = s.bgCanvas;
+  bgImageData = s.bgImageData;
+  canvas.width = s.canvasW;
+  canvas.height = s.canvasH;
+  ensureOffscreen(canvas.width, canvas.height);
+  scale = s.scale;
+  calib = s.calib;
+  items = s.items;
+  selectedId = s.selectedId;
+  lassoPoints = s.lassoPoints || [];
+  drag = null;
+  setTool(s.tool || 'select');
+  // 还原选区
+  if(s.mask !== undefined){
+    maskData = s.mask;
+    if(maskData){
+      rebuildMask();
+    } else {
+      maskCanvas = null; tintCanvas = null; outsideTintCanvas = null; contourPath = null;
+    }
+    selConfirmed = false;
+  }
+  // 同步 UI
+  userZoomed = false;
+  computeFitZoom(); zoom = fitZoom; applyZoom();
+  $('stageHint').style.display = bgImage ? 'none' : 'flex';
+  if(calib){
+    $('calibPx').textContent = calib.px;
+    $('calibResult').classList.remove('hidden');
+  } else {
+    $('calibResult').classList.add('hidden');
+  }
+  if(selectedId && !items.find(i=>i.id===selectedId)) selectedId = null;
+  refreshScaleInfo();
+  renderLayers();
+  render();
+  refreshProps();
+  updateFloatingSelButton();
+}
+
+let tool = 'select';         // select | quick | paint | lasso
+let selMode = 'new';         // new | add | sub
+
+// 显示缩放
+let zoom = 1;                // 显示缩放倍数（只影响显示，不影响导出）
+let fitZoom = 1;             // 适应窗口时的缩放倍数
+let userZoomed = false;      // 用户是否手动调整过缩放
+let showGrid = true;         // 井字格参考线是否显示
+
+// 标定
+let calibrating = false;
+let calib = null;            // {x1,y1,x2,y2,px}
+
+// 套索
+let lassoPoints = [];
+
+// 快速选择
+let quickRef = [];           // 参考色集合 {r,g,b}
+let quickLast = null;        // 上次笔刷取样点（节流）
+let lastMouseEvent = null;   // 最近一次鼠标事件（更新笔刷光标）
+
+// 画笔选择
+let paintLast = null;        // 上次画笔位置
+let paintPending = false;    // 是否已有待执行的选区重建（rAF 节流）
+
+// 其他形状：标长 + 抠图
+let freeMark = null;         // {x1,y1,x2,y2,px} 标长标记（原始图片像素坐标）
+let freeTool = 'mark';       // mark | quick | lasso | paint
+let freeSelMode = 'new';     // new | add | sub
+let freeImgData = null;      // item 图像素数据（缓存）
+let freeMaskData = null;     // item 图抠图选区（1=选中）
+let freeQuickRef = [];       // 抠图快速选择参考色
+let freeQuickLast = null;
+let freePaintLast = null;
+let freeLassoPoints = [];
+let freeDrag = null;         // {type:'mark'|'quick'|'lasso'|'paint'}
+
+// 拖拽
+let drag = null;             // {type:'item'|'rotate'|'calib'|'lasso', ...}
+
+// 图层导入队列
+let addQueue = [];
+let pendingItem = null;      // {name,url}
+
+let _id = 0;
+const uid = () => (++_id) + '_' + Date.now().toString(36);
+
+// 离屏画布
+let overlayC=null, overlayCtx=null;
+let maskedC=null, maskedCtx=null;
+
+/* ============ 工具函数 ============ */
+const $ = (id) => document.getElementById(id);
+function toast(msg){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+function fmt(n){ return (Math.round(n*100)/100); }
+function imgW(img){ return img.naturalWidth || img.width || 0; }
+function imgH(img){ return img.naturalHeight || img.height || 0; }
+
+function getPoint(e){
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - r.left) * (canvas.width / r.width),
+    y: (e.clientY - r.top) * (canvas.height / r.height)
+  };
+}
+
+// 显示比例：1 显示像素 = 多少画布像素（用于让手柄等 UI 元素在屏幕上保持恒定大小）
+function uiScale(){
+  const r = canvas.getBoundingClientRect();
+  return (r.width > 0) ? canvas.width / r.width : 1;
+}
+
+/* ============ 缩放（只影响显示，不影响导出） ============ */
+function clampZoom(z){ return Math.min(20, Math.max(0.02, z)); }
+
+function computeFitZoom(){
+  const wrap = $('canvasWrap');
+  const availW = wrap.clientWidth - 36;
+  const availH = wrap.clientHeight - 36;
+  if(availW <= 0 || availH <= 0){ fitZoom = 1; return; }
+  fitZoom = Math.min(availW / canvas.width, availH / canvas.height, 1);
+  fitZoom = Math.max(0.02, fitZoom);
+}
+
+function applyZoom(){
+  canvas.style.width = Math.round(canvas.width * zoom) + 'px';
+  canvas.style.height = Math.round(canvas.height * zoom) + 'px';
+  $('zoomVal').textContent = Math.round(zoom * 100) + '%';
+}
+
+function setZoom(z){
+  zoom = clampZoom(z);
+  applyZoom();
+}
+
+// 以屏幕上某点为锚点缩放，保持该点不动
+function zoomToPoint(clientX, clientY, factor){
+  const wrap = $('canvasWrap');
+  const cr = canvas.getBoundingClientRect();
+  const px = (clientX - cr.left) / cr.width;
+  const py = (clientY - cr.top) / cr.height;
+  setZoom(zoom * factor);
+  const cr2 = canvas.getBoundingClientRect();
+  wrap.scrollLeft += (cr2.left + px * cr2.width) - clientX;
+  wrap.scrollTop  += (cr2.top  + py * cr2.height) - clientY;
+}
+
+function zoomCenter(factor){
+  const wrap = $('canvasWrap');
+  const wr = wrap.getBoundingClientRect();
+  zoomToPoint(wr.left + wr.width/2, wr.top + wr.height/2, factor);
+}
+
+/* ============ 双指手势（手机平移/缩放画布） ============ */
+function gesturePoints(){
+  const pts = [...canvasPointers.values()];
+  return pts.slice(0, 2);
+}
+function startGesture(){
+  const pts = gesturePoints();
+  if(pts.length < 2) return null;
+  const cr = canvas.getBoundingClientRect();
+  return {
+    startDist: Math.hypot(pts[1].x-pts[0].x, pts[1].y-pts[0].y),
+    startMid: { x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2 },
+    startZoom: zoom,
+    // 手势起点处的画布矩形，用于计算锚定的内容点（比例）
+    crLeft: cr.left, crTop: cr.top, crW: cr.width, crH: cr.height
+  };
+}
+function updateGesture(){
+  if(!gesture) return;
+  const wrap = $('canvasWrap');
+  const pts = gesturePoints();
+  if(pts.length < 2){ gesture = null; return; }
+  const dist = Math.hypot(pts[1].x-pts[0].x, pts[1].y-pts[0].y);
+  const mid = { x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2 };
+  // 起点中点下的内容点（相对画布的比例）
+  const px = (gesture.startMid.x - gesture.crLeft) / gesture.crW;
+  const py = (gesture.startMid.y - gesture.crTop) / gesture.crH;
+  // 缩放（双指间距变化）
+  let z = gesture.startZoom;
+  if(gesture.startDist > 0){
+    z = clampZoom(gesture.startZoom * (dist / gesture.startDist));
+  }
+  setZoom(z);
+  // 锚定：让起点内容点跟随到当前双指中点，实现「边放大边移动」
+  const cr2 = canvas.getBoundingClientRect();
+  wrap.scrollLeft += (cr2.left + px*cr2.width) - mid.x;
+  wrap.scrollTop  += (cr2.top  + py*cr2.height) - mid.y;
+}
+
+function ensureOffscreen(w,h){
+  if(!overlayC || overlayC.width!==w || overlayC.height!==h){
+    overlayC = document.createElement('canvas'); overlayC.width=w; overlayC.height=h;
+    overlayCtx = overlayC.getContext('2d');
+    maskedC = document.createElement('canvas'); maskedC.width=w; maskedC.height=h;
+    maskedCtx = maskedC.getContext('2d');
+  }
+}
+
+/* ============ 步骤1：导入痛包正视图 ============ */
+function loadBg(file){
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    openCropModal(img, (cropped) => {
+      if(cropped) setupBg(cropped);
+    });
+  };
+  img.onerror = () => toast('图片加载失败');
+  img.src = url;
+}
+
+// 建立画布背景（限分辨率 + 缩放适配），供导入与加载项目共用
+// 长边不足 2048px 时先等比放大到 2048px：导入即修改，导出也基于放大后的分辨率
+function applyBgCanvas(img){
+  let w = imgW(img), h = imgH(img);
+  const MAX_EDGE = 2048;
+  let upscaled = false;
+  if(Math.max(w, h) < MAX_EDGE){
+    const up = MAX_EDGE / Math.max(w, h);
+    const uw = Math.max(1, Math.round(w * up));
+    const uh = Math.max(1, Math.round(h * up));
+    const u = document.createElement('canvas');
+    u.width = uw; u.height = uh;
+    u.getContext('2d').drawImage(img, 0, 0, uw, uh);
+    img = u;
+    w = uw; h = uh;
+    upscaled = true;
+  }
+  const rs = Math.min(1, MAX_EDGE / Math.max(w, h));
+  const cw = Math.max(1, Math.round(w * rs));
+  const ch = Math.max(1, Math.round(h * rs));
+  bgImage = img;
+  bgCanvas = document.createElement('canvas');
+  bgCanvas.width = cw;
+  bgCanvas.height = ch;
+  bgCtx = bgCanvas.getContext('2d');
+  bgCtx.drawImage(img, 0, 0, cw, ch);
+  bgImageData = bgCtx.getImageData(0,0,cw,ch);
+  canvas.width = cw; canvas.height = ch;
+  ensureOffscreen(cw, ch);
+  userZoomed = false;
+  computeFitZoom(); zoom = fitZoom; applyZoom();
+  $('stageHint').style.display = 'none';
+  return upscaled;
+}
+
+function setupBg(img){
+  pushUndo();
+  const upscaled = applyBgCanvas(img);
+  // 重置
+  items = []; selectedId = null; scale = null;
+  maskData = null; maskCanvas = null; tintCanvas = null; outsideTintCanvas = null; contourPath = null;
+  selConfirmed = false;
+  calib = null; lassoPoints = []; drag = null;
+  setTool('select');
+  refreshScaleInfo();
+  renderLayers();
+  render();
+  refreshProps();
+  if(isMobile){
+    applyMobileGroup('s2');
+    openMobileSheet();
+  }
+  toast(upscaled
+    ? '痛包图片已导入（长边不足 2048px，已等比放大到 2048px），请进行「② 标定比例」'
+    : '痛包图片已导入，请进行「② 标定比例」');
+}
+
+/* ============ 步骤2：标定比例 ============ */
+function setTool(t){
+  tool = t;
+  document.querySelectorAll('#selTools .btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.tool === t);
+  });
+  $('quickRow').classList.toggle('hidden', t!=='quick');
+  $('brushRow').classList.toggle('hidden', !(t==='quick' || t==='paint'));
+  $('btnCloseLasso').classList.toggle('hidden', t!=='lasso');
+  $('btnCancelLasso').classList.toggle('hidden', t!=='lasso');
+  $('brushCursor').style.display = (t==='quick' || t==='paint') ? 'block' : 'none';
+  updateCursor();
+  updateFloatingSelButton();
+}
+
+function startCalibrate(){
+  if(!bgImage){ toast('请先导入痛包正视图'); return; }
+  if(isMobile){ closeMobileSheet(); }
+  calibrating = true; calib = null;
+  tool = 'calibrate';
+  $('brushCursor').style.display = 'none';
+  document.querySelectorAll('#selTools .btn').forEach(b=>b.classList.remove('active'));
+  $('calibResult').classList.add('hidden');
+  toast(isMobile ? '在图上按住手指拖出痛层宽度' : '在图上按住鼠标拖出痛层宽度');
+  updateCursor();
+  render();
+}
+
+function applyScale(){
+  const cm = parseFloat($('inCm').value);
+  if(!calib){ toast('请先标记宽度'); return; }
+  if(!(cm>0)){ toast('请输入正确的厘米数'); return; }
+  scale = calib.px / cm;
+  calib = null;                       // 应用后不再显示标定线
+  $('calibResult').classList.add('hidden');
+  refreshScaleInfo();
+  render();
+  updateStepGuide();
+  if(isMobile){
+    applyMobileGroup('s3');
+    openMobileSheet();
+  }
+  toast('比例已应用：1 cm = ' + fmt(scale) + ' px');
+}
+
+function refreshScaleInfo(){
+  const el = $('scaleInfo');
+  if(scale){
+    el.classList.remove('hidden');
+    el.innerHTML = '✅ 当前比例：<b>1 cm = ' + fmt(scale) + ' px</b>' +
+      (bgImage ? '<br>痛包图尺寸 ' + bgCanvas.width + '×' + bgCanvas.height + ' px' : '');
+  } else {
+    el.classList.remove('hidden');
+    el.innerHTML = '⚠️ 尚未标定比例';
+  }
+}
+
+/* ============ 步骤3：选区 ============ */
+// 快速选择 flood fill：从某点出发，选择与任一参考色相近的连通区域
+function floodFillMulti(startP, refs, tol, imgData){
+  const w = imgData.width, h = imgData.height;
+  const data = imgData.data;
+  const tol2 = tol*tol;
+  const n = refs.length;
+  const rs = new Float64Array(n), gs = new Float64Array(n), bs = new Float64Array(n);
+  for(let i=0;i<n;i++){ rs[i]=refs[i].r; gs[i]=refs[i].g; bs[i]=refs[i].b; }
+  const visited = new Uint8Array(w*h);
+  const stack = new Int32Array(w*h);
+  let sp = 0;
+  stack[sp++] = startP;
+  visited[startP] = 1;
+  while(sp>0){
+    const p = stack[--sp];
+    const x = p % w;
+    const y = (p / w) | 0;
+    const tryAdd = (np)=>{
+      if(visited[np]) return;
+      const o = np*4;
+      const r = data[o], g = data[o+1], b = data[o+2];
+      for(let i=0;i<n;i++){
+        const dr = r-rs[i], dg = g-gs[i], db = b-bs[i];
+        if(dr*dr + dg*dg + db*db <= tol2){
+          visited[np] = 1; stack[sp++] = np;
+          return;
+        }
+      }
+    };
+    if(x>0) tryAdd(p-1);
+    if(x<w-1) tryAdd(p+1);
+    if(y>0) tryAdd(p-w);
+    if(y<h-1) tryAdd(p+w);
+  }
+  return visited;
+}
+
+// 快速选择：笔刷在 (px,py) 处取样并吸附相近颜色区域
+function quickBrushAt(px, py){
+  const w = bgCanvas.width, h = bgCanvas.height;
+  const x = Math.max(0, Math.min(w-1, Math.round(px)));
+  const y = Math.max(0, Math.min(h-1, Math.round(py)));
+  const tol = parseInt($('tolerance').value, 10);
+  const o = (y*w + x)*4;
+  const c = { r: bgImageData.data[o], g: bgImageData.data[o+1], b: bgImageData.data[o+2] };
+  // 若与已有参考色差异明显，则加入参考色集合（随涂抹自适应不同颜色）
+  const tol2 = tol*tol;
+  const similar = quickRef.some(q => {
+    const dr = q.r-c.r, dg = q.g-c.g, db = q.b-c.b;
+    return dr*dr + dg*dg + db*db <= tol2*0.25;
+  });
+  if(!similar){
+    quickRef.push(c);
+    if(quickRef.length > 20) quickRef.shift();
+  }
+  const vis = floodFillMulti(y*w + x, quickRef, tol, bgImageData);
+  applyMaskFromVisited(vis);
+  render();
+}
+
+function applyMaskFromVisited(vis){
+  const w = bgCanvas.width, h = bgCanvas.height;
+  if(!maskData){ maskData = new Uint8Array(w*h); }
+  for(let i=0;i<vis.length;i++){
+    if(selMode==='add') maskData[i] = maskData[i] || vis[i];
+    else if(selMode==='sub') maskData[i] = maskData[i] && (vis[i]?0:1);
+    else maskData[i] = vis[i];
+  }
+  rebuildMask();
+}
+
+// 画笔：在 (px,py) 处画一个圆形笔触到选区（只改 maskData，重建在 rAF 里合并执行）
+function paintStamp(px, py){
+  const w = bgCanvas.width, h = bgCanvas.height;
+  if(!maskData){ maskData = new Uint8Array(w*h); }
+  const r = parseInt($('brushSize').value, 10) / 2;
+  const x0 = Math.round(px), y0 = Math.round(py);
+  const xmin = Math.max(0, Math.floor(x0 - r)), xmax = Math.min(w-1, Math.ceil(x0 + r));
+  const ymin = Math.max(0, Math.floor(y0 - r)), ymax = Math.min(h-1, Math.ceil(y0 + r));
+  const r2 = r*r;
+  const val = (selMode === 'sub') ? 0 : 1;
+  for(let y=ymin; y<=ymax; y++){
+    for(let x=xmin; x<=xmax; x++){
+      const dx = x - x0, dy = y - y0;
+      if(dx*dx + dy*dy <= r2) maskData[y*w + x] = val;
+    }
+  }
+}
+
+// 用 requestAnimationFrame 合并多次笔触，每帧只重建一次蒙版
+function schedulePaintRender(){
+  if(paintPending) return;
+  paintPending = true;
+  requestAnimationFrame(()=>{
+    paintPending = false;
+    rebuildMask();
+    render();
+  });
+}
+
+// 点是否在多边形内（射线法）
+function pointInPoly(px,py,poly){
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+    const intersect = ((yi>py)!==(yj>py)) && (px < (xj-xi)*(py-yi)/(yj-yi)+xi);
+    if(intersect) inside=!inside;
+  }
+  return inside;
+}
+
+function rasterizeLasso(poly){
+  const w = bgCanvas.width, h = bgCanvas.height;
+  if(!maskData){ maskData = new Uint8Array(w*h); }
+  let minx=Math.max(0,Math.floor(Math.min(...poly.map(p=>p.x))));
+  let maxx=Math.min(w-1,Math.ceil(Math.max(...poly.map(p=>p.x))));
+  let miny=Math.max(0,Math.floor(Math.min(...poly.map(p=>p.y))));
+  let maxy=Math.min(h-1,Math.ceil(Math.max(...poly.map(p=>p.y))));
+  for(let y=miny;y<=maxy;y++){
+    for(let x=minx;x<=maxx;x++){
+      const inside = pointInPoly(x+0.5, y+0.5, poly);
+      const idx = y*w+x;
+      if(selMode==='add') maskData[idx] = maskData[idx] || (inside?1:0);
+      else if(selMode==='sub') maskData[idx] = maskData[idx] && (inside?0:1);
+      else maskData[idx] = inside?1:0;
+    }
+  }
+  rebuildMask();
+}
+
+function rebuildMask(){
+  const w = bgCanvas.width, h = bgCanvas.height;
+  if(!maskCanvas){ maskCanvas = document.createElement('canvas'); maskCanvas.width=w; maskCanvas.height=h; }
+  if(!tintCanvas){ tintCanvas = document.createElement('canvas'); tintCanvas.width=w; tintCanvas.height=h; }
+  if(!outsideTintCanvas){ outsideTintCanvas = document.createElement('canvas'); outsideTintCanvas.width=w; outsideTintCanvas.height=h; }
+  const mctx = maskCanvas.getContext('2d');
+  const img = mctx.createImageData(w,h);
+  const d = img.data;
+  for(let i=0;i<maskData.length;i++){
+    const a = maskData[i] ? 255 : 0;
+    const o=i*4; d[o]=255; d[o+1]=255; d[o+2]=255; d[o+3]=a;
+  }
+  mctx.putImageData(img,0,0);
+
+  // 红色 tint（选区内，编辑中）
+  const tctx = tintCanvas.getContext('2d');
+  tctx.clearRect(0,0,w,h);
+  tctx.drawImage(maskCanvas,0,0);
+  tctx.globalCompositeOperation = 'source-in';
+  tctx.fillStyle = '#ff5b7f';
+  tctx.fillRect(0,0,w,h);
+  tctx.globalCompositeOperation = 'source-over';
+
+  // 蓝色 tint（选区外，已确定后）
+  const octx = outsideTintCanvas.getContext('2d');
+  octx.clearRect(0,0,w,h);
+  octx.fillStyle = '#3a7bff';
+  octx.fillRect(0,0,w,h);
+  octx.globalCompositeOperation = 'destination-out';
+  octx.drawImage(maskCanvas,0,0);
+  octx.globalCompositeOperation = 'source-over';
+
+  contourPath = buildContourPath();
+}
+
+function buildContourPath(){
+  return buildContourFromMask(maskData, bgCanvas.width, bgCanvas.height);
+}
+
+// 通用：由 0/1 掩码生成选区轮廓 Path2D（痛层选区与装饰品抠图共用）
+function buildContourFromMask(mask, w, h){
+  const path = new Path2D();
+  const at = (x,y) => (x>=0 && x<w && y>=0 && y<h) ? mask[y*w+x] : 0;
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const tl=at(x,y), tr=at(x+1,y), br=at(x+1,y+1), bl=at(x,y+1);
+      const idx = (tl?8:0)|(tr?4:0)|(br?2:0)|(bl?1:0);
+      if(idx===0||idx===15) continue;
+      const tm=[x+0.5,y], rm=[x+1,y+0.5], bm=[x+0.5,y+1], lm=[x,y+0.5];
+      let segs;
+      switch(idx){
+        case 1: segs=[[lm,bm]]; break;
+        case 2: segs=[[rm,bm]]; break;
+        case 3: segs=[[lm,rm]]; break;
+        case 4: segs=[[tm,rm]]; break;
+        case 5: segs=[[tm,lm],[rm,bm]]; break;
+        case 6: segs=[[tm,bm]]; break;
+        case 7: segs=[[tm,lm]]; break;
+        case 8: segs=[[tm,lm]]; break;
+        case 9: segs=[[tm,bm]]; break;
+        case 10: segs=[[tm,rm],[lm,bm]]; break;
+        case 11: segs=[[tm,rm]]; break;
+        case 12: segs=[[lm,rm]]; break;
+        case 13: segs=[[rm,bm]]; break;
+        case 14: segs=[[lm,bm]]; break;
+      }
+      for(const [a,b] of segs){
+        path.moveTo(a[0],a[1]); path.lineTo(b[0],b[1]);
+      }
+    }
+  }
+  return path;
+}
+
+function clearSelection(){
+  pushUndoMask();
+  selConfirmed = false;
+  maskData = null; maskCanvas = null; tintCanvas = null; outsideTintCanvas = null; contourPath = null;
+  render();
+  updateStepGuide();
+  updateFloatingSelButton();
+  toast('已清除选区');
+}
+
+// 编辑选区时回到未确定状态（红色高亮）
+function resetSelConfirm(){
+  selConfirmed = false;
+}
+
+// 已有选区后，默认模式自动切到「添加到选区」，避免误覆盖
+function autoSwitchSelMode(){
+  if(selMode !== 'new' || !maskData) return;
+  let any = false;
+  for(let i=0;i<maskData.length;i++){ if(maskData[i]){ any = true; break; } }
+  if(any){
+    selMode = 'add';
+    $('selMode').value = 'add';
+  }
+}
+
+// 手机端浮动按钮：套索未闭合显示「闭合选区」，已有选区未确定显示「确定痛层区域」
+function updateFloatingSelButton(){
+  const btn = $('btnFloatSel');
+  if(!isMobile){ btn.style.display = 'none'; return; }
+  if($('sidebar').classList.contains('sheet-open')){
+    btn.style.display = 'none';
+    return;
+  }
+  if(tool === 'lasso' && lassoPoints.length > 0){
+    btn.textContent = '闭合选区';
+    btn.style.display = 'block';
+  } else if(hasMask() && !selConfirmed){
+    btn.textContent = '确定痛层区域';
+    btn.style.display = 'block';
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function confirmSelAndNext(){
+  if(!maskData || !hasMask()){ toast('请先框选痛层区域'); return; }
+  selConfirmed = true;
+  setTool('select');
+  render();
+  updateFloatingSelButton();
+  if(isMobile){
+    applyMobileGroup('s4');
+    openMobileSheet();
+  }
+  toast('已确定痛层区域');
+}
+
+/* ============ 步骤4：图层 ============ */
+function loadItemFiles(files){
+  if(!scale){ toast('请先完成「② 标定比例」，再导入谷子/装饰品'); return; }
+  if(!maskData){ toast('提示：还未选择痛层区域，图片将不被裁剪（建议先做第③步）'); }
+  for(const f of files){ addQueue.push(f); }
+  processQueue();
+}
+
+function processQueue(){
+  if(pendingItem || $('modal').classList.contains('show') || $('cropModal').classList.contains('show')) return;
+  if(!addQueue.length) return;
+  const f = addQueue.shift();
+  const url = URL.createObjectURL(f);
+  const img = new Image();
+  img.onload = () => {
+    openCropModal(img, (cropped) => {
+      if(!cropped){ processQueue(); return; }   // 取消裁剪：处理下一个
+      pendingItem = { name: f.name, url: thumbOf(cropped), img: cropped };
+      showAddItemModal();
+    });
+  };
+  img.onerror = () => { toast('图片加载失败'); processQueue(); };
+  img.src = url;
+}
+
+function showAddItemModal(){
+  $('modalPreview').innerHTML = '<img src="'+pendingItem.url+'" alt=""><div class="nm">'+pendingItem.name+'</div>';
+  $('modalScale').innerHTML = '比例：1 cm = ' + fmt(scale) + ' px';
+  // 默认值
+  document.querySelector('input[name=shape][value=circle]').checked = true;
+  $('circleDims').classList.remove('hidden');
+  $('circlePresets').classList.remove('hidden');
+  $('rectDims').classList.add('hidden');
+  $('rectPresets').classList.add('hidden');
+  $('freeDims').classList.add('hidden');
+  $('fitField').classList.remove('hidden');
+  $('inFit').value = 'cover';
+  $('inD').value = '';
+  $('inW').value = ''; $('inH').value = '';
+  $('inFreeCm').value = '';
+  freeMark = null; freeImgData = null; freeMaskData = null;
+  freeQuickRef = []; freeQuickLast = null; freePaintLast = null; freeLassoPoints = [];
+  freeDrag = null; freeSelMode = 'new';
+  freeSetTool('mark');
+  $('modal').classList.add('show');
+}
+
+function confirmAddItem(){
+  if(!pendingItem) return;
+  const shape = document.querySelector('input[name=shape]:checked').value;
+  const fit = $('inFit').value;
+  // 校验
+  if(shape==='circle'){
+    if(!(parseFloat($('inD').value) > 0)){ toast('请输入直径'); return; }
+  } else if(shape==='rect'){
+    if(!(parseFloat($('inW').value) > 0) || !(parseFloat($('inH').value) > 0)){ toast('请输入长和宽'); return; }
+  } else { // free
+    if(!freeMark || freeMark.px < 2){ toast('请先在预览图上标记物品长度'); return; }
+    if(!(parseFloat($('inFreeCm').value) > 0)){ toast('请输入标记长度的厘米数'); return; }
+  }
+
+  const finish = (img) => {
+    let wCm, hCm, wPx, hPx, srcImg = img;
+    if(shape==='circle'){
+      wCm = parseFloat($('inD').value); hCm = wCm;
+      wPx = wCm * scale; hPx = hCm * scale;
+    } else if(shape==='rect'){
+      wCm = parseFloat($('inW').value); hCm = parseFloat($('inH').value);
+      wPx = wCm * scale; hPx = hCm * scale;
+    } else {
+      const cm = parseFloat($('inFreeCm').value);
+      const fcm = cm / freeMark.px;      // 每原始像素对应的厘米
+      wCm = imgW(img) * fcm;
+      hCm = imgH(img) * fcm;
+      wPx = wCm * scale;
+      hPx = hCm * scale;
+      srcImg = buildFreeCutout(img);     // 抠图：仅保留选中区域
+    }
+    const item = {
+      id: uid(), name: pendingItem.name, img: srcImg, url: '',
+      shape, fit, wCm, hCm, wPx, hPx,
+      x: bgCanvas.width/2, y: bgCanvas.height/2, rotation: 0, visible: true
+    };
+    item.url = thumbOfItem(item);
+    pushUndo();
+    items.push(item);
+    selectedId = item.id;
+    pendingItem = null;
+    $('modal').classList.remove('show');
+    setTool('select');
+    renderLayers(); render(); refreshProps();
+    processQueue();
+  };
+
+  if(pendingItem.img && imgW(pendingItem.img)){
+    finish(pendingItem.img);
+  } else {
+    pendingItem = null;
+    $('modal').classList.remove('show');
+    toast('图片加载失败');
+    processQueue();
+  }
+}
+
+function getItem(id){ return items.find(i=>i.id===id); }
+
+// 命中检测（考虑旋转）
+function hitItem(it, px, py){
+  const dx = px - it.x, dy = py - it.y;
+  const rad = -it.rotation * Math.PI/180;
+  const lx = dx*Math.cos(rad) - dy*Math.sin(rad);
+  const ly = dx*Math.sin(rad) + dy*Math.cos(rad);
+  if(it.shape==='circle'){
+    return (lx*lx + ly*ly) <= (it.wPx/2)*(it.wPx/2);
+  } else {
+    return Math.abs(lx) <= it.wPx/2 && Math.abs(ly) <= it.hPx/2;
+  }
+}
+
+function pickItem(px,py){
+  for(let i=items.length-1;i>=0;i--){
+    const it = items[i];
+    if(it.visible && hitItem(it, px, py)) return it;
+  }
+  return null;
+}
+
+function rotateHandlePos(it){
+  const rad = it.rotation * Math.PI/180;
+  const r = it.hPx/2 + 28 * uiScale();
+  return { x: it.x + Math.sin(rad)*r, y: it.y - Math.cos(rad)*r };
+}
+
+// 旋转吸附：只吸附到 0°（含 ±2° 误差）
+function snapRotation(angle){
+  const r = ((angle % 360) + 360) % 360;   // 归一化到 [0,360)
+  if(r <= 2 || r >= 358){
+    return 0;
+  }
+  return angle;
+}
+
+/* ============ 其他形状：标长 + 抠图 ============ */
+function freeSetTool(t){
+  freeTool = t;
+  document.querySelectorAll('#freeTools .btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.ftool === t);
+  });
+  $('freeQuickRow').classList.toggle('hidden', t!=='quick');
+  $('freeBrushRow').classList.toggle('hidden', !(t==='quick'||t==='paint'));
+  $('btnFreeCloseLasso').classList.toggle('hidden', t!=='lasso');
+  $('freeMarkCanvas').style.cursor = 'crosshair';
+}
+
+function freeInitImgData(){
+  const img = pendingItem && pendingItem.img;
+  if(!img || !imgW(img)) return null;
+  if(freeImgData && freeImgData.width===imgW(img) && freeImgData.height===imgH(img)) return freeImgData;
+  const c = document.createElement('canvas');
+  c.width = imgW(img); c.height = imgH(img);
+  const cctx = c.getContext('2d');
+  cctx.drawImage(img, 0, 0);
+  freeImgData = cctx.getImageData(0,0,c.width,c.height);
+  return freeImgData;
+}
+
+function freeEnsureMask(){
+  const img = pendingItem.img;
+  if(!freeMaskData) freeMaskData = new Uint8Array(imgW(img)*imgH(img));
+  return freeMaskData;
+}
+
+function freeApplyVisited(vis){
+  const m = freeEnsureMask();
+  for(let i=0;i<vis.length;i++){
+    if(freeSelMode==='add') m[i] = m[i] || vis[i];
+    else if(freeSelMode==='sub') m[i] = m[i] && (vis[i]?0:1);
+    else m[i] = vis[i];
+  }
+  drawFreeMarkPreview();
+}
+
+function freeQuickAt(px, py){
+  const img = pendingItem.img;
+  const w = imgW(img), h = imgH(img);
+  const x = Math.max(0, Math.min(w-1, Math.round(px)));
+  const y = Math.max(0, Math.min(h-1, Math.round(py)));
+  const tol = parseInt($('freeTolerance').value, 10);
+  const idata = freeInitImgData(); if(!idata) return;
+  const o = (y*w+x)*4;
+  const c = { r: idata.data[o], g: idata.data[o+1], b: idata.data[o+2] };
+  const tol2 = tol*tol;
+  const similar = freeQuickRef.some(q => {
+    const dr=q.r-c.r, dg=q.g-c.g, db=q.b-c.b;
+    return dr*dr + dg*dg + db*db <= tol2*0.25;
+  });
+  if(!similar){ freeQuickRef.push(c); if(freeQuickRef.length>20) freeQuickRef.shift(); }
+  const vis = floodFillMulti(y*w+x, freeQuickRef, tol, idata);
+  freeApplyVisited(vis);
+}
+
+function freePaintStamp(px, py){
+  const img = pendingItem.img;
+  const w = imgW(img), h = imgH(img);
+  const m = freeEnsureMask();
+  const r = parseInt($('freeBrushSize').value, 10)/2;
+  const x0 = Math.round(px), y0 = Math.round(py);
+  const xmin = Math.max(0, Math.floor(x0-r)), xmax = Math.min(w-1, Math.ceil(x0+r));
+  const ymin = Math.max(0, Math.floor(y0-r)), ymax = Math.min(h-1, Math.ceil(y0+r));
+  const r2 = r*r;
+  const val = (freeSelMode==='sub') ? 0 : 1;
+  for(let y=ymin; y<=ymax; y++){
+    for(let x=xmin; x<=xmax; x++){
+      const dx=x-x0, dy=y-y0;
+      if(dx*dx+dy*dy <= r2) m[y*w+x] = val;
+    }
+  }
+}
+
+function freeRasterizeLasso(poly){
+  const img = pendingItem.img;
+  const w = imgW(img), h = imgH(img);
+  const m = freeEnsureMask();
+  let minx=Math.max(0,Math.floor(Math.min(...poly.map(p=>p.x))));
+  let maxx=Math.min(w-1,Math.ceil(Math.max(...poly.map(p=>p.x))));
+  let miny=Math.max(0,Math.floor(Math.min(...poly.map(p=>p.y))));
+  let maxy=Math.min(h-1,Math.ceil(Math.max(...poly.map(p=>p.y))));
+  for(let y=miny;y<=maxy;y++){
+    for(let x=minx;x<=maxx;x++){
+      const inside = pointInPoly(x+0.5, y+0.5, poly);
+      const idx = y*w+x;
+      if(freeSelMode==='add') m[idx] = m[idx] || (inside?1:0);
+      else if(freeSelMode==='sub') m[idx] = m[idx] && (inside?0:1);
+      else m[idx] = inside?1:0;
+    }
+  }
+  drawFreeMarkPreview();
+}
+
+// 由抠图选区生成透明背景的成品图
+function buildFreeCutout(img){
+  if(!freeMaskData) return img;
+  let any = false;
+  for(let i=0;i<freeMaskData.length;i++){ if(freeMaskData[i]){ any=true; break; } }
+  if(!any) return img;
+  const c = document.createElement('canvas');
+  c.width = imgW(img); c.height = imgH(img);
+  const cctx = c.getContext('2d');
+  cctx.drawImage(img,0,0);
+  const m = document.createElement('canvas');
+  m.width = imgW(img); m.height = imgH(img);
+  const mctx = m.getContext('2d');
+  const im = mctx.createImageData(m.width, m.height);
+  for(let i=0;i<freeMaskData.length;i++){
+    const a = freeMaskData[i] ? 255 : 0;
+    const o=i*4; im.data[o]=255; im.data[o+1]=255; im.data[o+2]=255; im.data[o+3]=a;
+  }
+  mctx.putImageData(im,0,0);
+  cctx.globalCompositeOperation = 'destination-in';
+  cctx.drawImage(m,0,0);
+  return c;
+}
+
+// 生成图层缩略图数据 URL（兼容 canvas 与图片）
+function thumbOf(img){
+  const w = imgW(img);
+  const h = imgH(img);
+  const size = 68;
+  const s = Math.min(size/w, size/h);
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w*s));
+  c.height = Math.max(1, Math.round(h*s));
+  const cctx = c.getContext('2d');
+  cctx.drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/png');
+}
+
+// 按图层实际形状生成缩略图（棋盘格底 + 圆形/矩形裁剪，异形保留透明）
+function thumbOfItem(it){
+  const size = 68;
+  const maxEdge = Math.max(it.wPx, it.hPx) || 1;
+  const tw = Math.max(1, Math.round(it.wPx / maxEdge * size));
+  const th = Math.max(1, Math.round(it.hPx / maxEdge * size));
+  const c = document.createElement('canvas');
+  c.width = tw; c.height = th;
+  const cctx = c.getContext('2d');
+  const g = 6;
+  for(let y=0;y<th;y+=g){
+    for(let x=0;x<tw;x+=g){
+      cctx.fillStyle = (((x/g)+(y/g))%2===0) ? '#2a2d35' : '#35383f';
+      cctx.fillRect(x,y,g,g);
+    }
+  }
+  cctx.scale(tw / it.wPx, th / it.hPx);
+  drawItemInto(cctx, Object.assign({}, it, { x: tw/2, y: th/2 }), 0, 0);
+  return c.toDataURL('image/png');
+}
+
+/* ============ 裁剪图片 ============ */
+let cropImage = null;
+let cropCallback = null;
+let cropRect = null;      // {x0,y0,x1,y1} 原始像素坐标
+let cropDrag = null;      // {mode, startX, startY, rect}
+
+function openCropModal(img, cb){
+  cropImage = img;
+  cropCallback = cb;
+  const w = imgW(img), h = imgH(img);
+  const mx = Math.max(6, Math.round(w * 0.06));
+  const my = Math.max(6, Math.round(h * 0.06));
+  cropRect = { x0: mx, y0: my, x1: w - mx, y1: h - my };
+  cropDrag = null;
+  drawCropPreview();
+  $('cropModal').classList.add('show');
+}
+function closeCropModal(){
+  cropImage = null; cropCallback = null; cropDrag = null;
+  $('cropModal').classList.remove('show');
+}
+
+function cropPoint(e){
+  const c = $('cropCanvas');
+  const r = c.getBoundingClientRect();
+  const iw = imgW(cropImage), ih = imgH(cropImage);
+  return {
+    x: (e.clientX - r.left) * (iw / r.width),
+    y: (e.clientY - r.top) * (ih / r.height)
+  };
+}
+
+// 画棋盘格底色（用于透明图片预览）
+function checkerboardInto(cctx, w, h, g){
+  g = g || 8;
+  cctx.save();
+  for(let y=0;y<h;y+=g){
+    for(let x=0;x<w;x+=g){
+      cctx.fillStyle = (((x/g)+(y/g))%2===0) ? '#e4e4ec' : '#f7f7fb';
+      cctx.fillRect(x,y,g,g);
+    }
+  }
+  cctx.restore();
+}
+
+function drawCropPreview(){
+  const c = $('cropCanvas');
+  const cctx = c.getContext('2d');
+  if(!cropImage){ return; }
+  const iw = imgW(cropImage), ih = imgH(cropImage);
+  const maxW = 560, maxH = 420;
+  const s = Math.min(maxW/iw, maxH/ih, 1);
+  c.width = Math.max(1, Math.round(iw*s));
+  c.height = Math.max(1, Math.round(ih*s));
+  // 棋盘格打底：透明部分（PNG 透明区域）显示为棋盘格，便于看清边缘
+  checkerboardInto(cctx, c.width, c.height);
+  cctx.drawImage(cropImage, 0, 0, c.width, c.height);
+  const sx = c.width/iw, sy = c.height/ih;
+  const rx = cropRect.x0*sx, ry = cropRect.y0*sy;
+  const rw = (cropRect.x1-cropRect.x0)*sx, rh = (cropRect.y1-cropRect.y0)*sy;
+  // 暗化外部
+  cctx.fillStyle = 'rgba(0,0,0,0.55)';
+  cctx.fillRect(0,0,c.width,ry);
+  cctx.fillRect(0,ry+rh,c.width,c.height-(ry+rh));
+  cctx.fillRect(0,ry,rx,rh);
+  cctx.fillRect(rx+rw,ry,c.width-(rx+rw),rh);
+  // 裁剪框内三分参考线
+  cctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  cctx.lineWidth = 1;
+  cctx.beginPath();
+  for(let i=1;i<=2;i++){
+    const gx = rx + rw*i/3, gy = ry + rh*i/3;
+    cctx.moveTo(gx, ry); cctx.lineTo(gx, ry+rh);
+    cctx.moveTo(rx, gy); cctx.lineTo(rx+rw, gy);
+  }
+  cctx.stroke();
+  // 边框（深色描边 + 白色）
+  cctx.strokeStyle = 'rgba(0,0,0,0.7)'; cctx.lineWidth = 4;
+  cctx.strokeRect(rx, ry, rw, rh);
+  cctx.strokeStyle = '#ffffff'; cctx.lineWidth = 2;
+  cctx.strokeRect(rx, ry, rw, rh);
+  // 四角手柄
+  const hs = 12;
+  const corners = [[rx,ry],[rx+rw,ry],[rx,ry+rh],[rx+rw,ry+rh]];
+  for(const [cx,cy] of corners){
+    cctx.fillStyle = '#ffffff';
+    cctx.fillRect(cx-hs/2, cy-hs/2, hs, hs);
+    cctx.strokeStyle = 'rgba(0,0,0,0.6)'; cctx.lineWidth = 1;
+    cctx.strokeRect(cx-hs/2, cy-hs/2, hs, hs);
+  }
+}
+
+$('cropCanvas').addEventListener('pointerdown', (e)=>{
+  if(!cropImage) return;
+  const c = $('cropCanvas');
+  const r = c.getBoundingClientRect();
+  const iw = imgW(cropImage), ih = imgH(cropImage);
+  const px = (e.clientX - r.left) * (c.width / r.width);
+  const py = (e.clientY - r.top) * (c.height / r.height);
+  const ox = (e.clientX - r.left) * (iw / r.width);
+  const oy = (e.clientY - r.top) * (ih / r.height);
+  const sx = c.width/iw, sy = c.height/ih;
+  const rx = cropRect.x0*sx, ry = cropRect.y0*sy;
+  const rw = (cropRect.x1-cropRect.x0)*sx, rh = (cropRect.y1-cropRect.y0)*sy;
+  const tol = 18;
+  let mode = null;
+  if(Math.abs(px-rx)<tol && Math.abs(py-ry)<tol) mode='tl';
+  else if(Math.abs(px-(rx+rw))<tol && Math.abs(py-ry)<tol) mode='tr';
+  else if(Math.abs(px-rx)<tol && Math.abs(py-(ry+rh))<tol) mode='bl';
+  else if(Math.abs(px-(rx+rw))<tol && Math.abs(py-(ry+rh))<tol) mode='br';
+  else if(px>rx && px<rx+rw && py>ry && py<ry+rh) mode='move';
+  if(!mode) return;
+  cropDrag = { mode, startX: ox, startY: oy, rect: {...cropRect} };
+});
+
+window.addEventListener('pointermove', (e)=>{
+  if(!cropDrag) return;
+  const p = cropPoint(e);
+  const r = cropDrag.rect;
+  const iw = imgW(cropImage), ih = imgH(cropImage);
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  if(cropDrag.mode === 'move'){
+    const w = r.x1 - r.x0, h = r.y1 - r.y0;
+    const x0 = clamp(r.x0 + (p.x - cropDrag.startX), 0, iw - w);
+    const y0 = clamp(r.y0 + (p.y - cropDrag.startY), 0, ih - h);
+    cropRect = { x0, y0, x1: x0 + w, y1: y0 + h };
+  } else {
+    let x0 = r.x0, y0 = r.y0, x1 = r.x1, y1 = r.y1;
+    if(cropDrag.mode === 'tl' || cropDrag.mode === 'bl') x0 = clamp(p.x, 0, x1 - 10);
+    if(cropDrag.mode === 'tr' || cropDrag.mode === 'br') x1 = clamp(p.x, x0 + 10, iw);
+    if(cropDrag.mode === 'tl' || cropDrag.mode === 'tr') y0 = clamp(p.y, 0, y1 - 10);
+    if(cropDrag.mode === 'bl' || cropDrag.mode === 'br') y1 = clamp(p.y, y0 + 10, ih);
+    cropRect = { x0, y0, x1, y1 };
+  }
+  drawCropPreview();
+});
+
+window.addEventListener('pointerup', ()=>{ cropDrag = null; });
+
+function confirmCrop(){
+  if(!cropImage) return;
+  const r = cropRect;
+  const w = Math.max(1, Math.round(r.x1 - r.x0));
+  const h = Math.max(1, Math.round(r.y1 - r.y0));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const cctx = c.getContext('2d');
+  cctx.drawImage(cropImage, r.x0, r.y0, w, h, 0, 0, w, h);
+  const cb = cropCallback;
+  closeCropModal();
+  if(cb) cb(c);
+}
+function cancelCrop(){
+  const cb = cropCallback;
+  closeCropModal();
+  if(cb) cb(null);
+}
+$('btnCropConfirm').addEventListener('click', confirmCrop);
+$('btnCropCancel').addEventListener('click', cancelCrop);
+
+function drawFreeMarkLine(cctx){
+  const img = pendingItem.img;
+  const c = $('freeMarkCanvas');
+  const sx = c.width / imgW(img);
+  const sy = c.height / imgH(img);
+  const x1 = freeMark.x1*sx, y1 = freeMark.y1*sy, x2 = freeMark.x2*sx, y2 = freeMark.y2*sy;
+  // 与「② 标定比例」的标定线完全一致：蓝色虚线 + 白边圆点端点，不显示数值
+  cctx.save();
+  cctx.strokeStyle = '#4f8cff';
+  cctx.lineWidth = 2;
+  cctx.setLineDash([8, 6]);
+  cctx.beginPath(); cctx.moveTo(x1,y1); cctx.lineTo(x2,y2); cctx.stroke();
+  cctx.setLineDash([]);
+  for(const [x,y] of [[x1,y1],[x2,y2]]){
+    cctx.beginPath(); cctx.arc(x,y,5,0,Math.PI*2);
+    cctx.fillStyle='#4f8cff'; cctx.fill();
+    cctx.strokeStyle='#ffffff'; cctx.lineWidth=1.5; cctx.stroke();
+  }
+  cctx.restore();
+}
+
+// 抠图选区红色叠加 + 白色虚线轮廓
+function freeDrawSelectionOverlay(cctx, cw, ch){
+  const img = pendingItem.img;
+  if(!freeMaskData || !img) return;
+  let any = false;
+  for(let i=0;i<freeMaskData.length;i++){ if(freeMaskData[i]){ any=true; break; } }
+  if(!any) return;
+  const m = document.createElement('canvas');
+  m.width = imgW(img); m.height = imgH(img);
+  const mctx = m.getContext('2d');
+  const im = mctx.createImageData(m.width, m.height);
+  for(let i=0;i<freeMaskData.length;i++){
+    const a = freeMaskData[i] ? 255 : 0;
+    const o=i*4; im.data[o]=255; im.data[o+1]=255; im.data[o+2]=255; im.data[o+3]=a;
+  }
+  mctx.putImageData(im,0,0);
+  const tint = document.createElement('canvas');
+  tint.width = m.width; tint.height = m.height;
+  const tctx = tint.getContext('2d');
+  tctx.drawImage(m,0,0);
+  tctx.globalCompositeOperation = 'source-in';
+  tctx.fillStyle = '#ff5b7f';
+  tctx.fillRect(0,0,tint.width,tint.height);
+  tctx.globalCompositeOperation = 'source-over';
+
+  cctx.save();
+  cctx.globalAlpha = 0.4;
+  cctx.drawImage(tint, 0, 0, cw, ch);
+  cctx.globalAlpha = 1;
+  const path = buildContourFromMask(freeMaskData, imgW(img), imgH(img));
+  cctx.save();
+  cctx.scale(cw/imgW(img), ch/imgH(img));
+  // 深色打底描边，保证在浅色棋盘格上也清晰
+  cctx.strokeStyle = 'rgba(0,0,0,0.7)';
+  cctx.lineWidth = 2.5;
+  cctx.setLineDash([6,4]);
+  cctx.stroke(path);
+  cctx.strokeStyle = '#ffffff';
+  cctx.lineWidth = 1.5;
+  cctx.stroke(path);
+  cctx.setLineDash([]);
+  cctx.restore();
+  cctx.restore();
+}
+
+function drawFreeMarkPreview(){
+  const c = $('freeMarkCanvas');
+  const cctx = c.getContext('2d');
+  const img = pendingItem && pendingItem.img;
+  if(!img || !imgW(img)){
+    c.width = 560; c.height = 300;
+    checkerboardInto(cctx, 560, 300);
+    $('freeMarkHint').style.display = 'flex';
+    return;
+  }
+  $('freeMarkHint').style.display = 'none';
+  const iw = imgW(img), ih = imgH(img);
+  const maxW = 590, maxH = 420;
+  const s = Math.min(maxW/iw, maxH/ih, 1);
+  c.width = Math.max(1, Math.round(iw*s));
+  c.height = Math.max(1, Math.round(ih*s));
+  checkerboardInto(cctx, c.width, c.height);
+  cctx.drawImage(img, 0, 0, c.width, c.height);
+  freeDrawSelectionOverlay(cctx, c.width, c.height);
+  // 套索预览
+  if(freeLassoPoints.length){
+    cctx.save();
+    cctx.strokeStyle='#5b8cff'; cctx.lineWidth=1.5; cctx.setLineDash([5,4]);
+    cctx.beginPath();
+    cctx.moveTo(freeLassoPoints[0].x*s, freeLassoPoints[0].y*s);
+    for(let i=1;i<freeLassoPoints.length;i++) cctx.lineTo(freeLassoPoints[i].x*s, freeLassoPoints[i].y*s);
+    cctx.stroke();
+    cctx.setLineDash([]);
+    for(const p of freeLassoPoints){
+      cctx.beginPath(); cctx.arc(p.x*s, p.y*s, 4, 0, Math.PI*2);
+      cctx.fillStyle='#5b8cff'; cctx.fill();
+    }
+    cctx.restore();
+  }
+  if(freeMark){ drawFreeMarkLine(cctx); }
+}
+
+function freeCanvasPoint(e){
+  const c = $('freeMarkCanvas');
+  const r = c.getBoundingClientRect();
+  const img = pendingItem.img;
+  return {
+    x: (e.clientX - r.left) * (imgW(img) / r.width),
+    y: (e.clientY - r.top) * (imgH(img) / r.height)
+  };
+}
+
+/* ============ 渲染 ============ */
+function drawItemsMasked(c){
+  if(!items.length) return;
+  const w = canvas.width, h = canvas.height;
+  ensureOffscreen(w,h);
+  overlayCtx.clearRect(0,0,w,h);
+  for(const it of items){
+    if(!it.visible) continue;
+    overlayCtx.save();
+    overlayCtx.translate(it.x, it.y);
+    overlayCtx.rotate(it.rotation*Math.PI/180);
+    if(it.shape==='free'){
+      // 其他形状：按原图完整绘制，保留透明区域，不裁切
+      overlayCtx.drawImage(it.img, -it.wPx/2, -it.hPx/2, it.wPx, it.hPx);
+      overlayCtx.restore();
+      continue;
+    }
+    overlayCtx.beginPath();
+    if(it.shape==='circle'){
+      overlayCtx.arc(0,0,it.wPx/2,0,Math.PI*2);
+    } else {
+      overlayCtx.rect(-it.wPx/2, -it.hPx/2, it.wPx, it.hPx);
+    }
+    overlayCtx.clip();
+    if(it.fit==='stretch'){
+      overlayCtx.drawImage(it.img, -it.wPx/2, -it.hPx/2, it.wPx, it.hPx);
+    } else {
+      const s = Math.max(it.wPx/it.img.width, it.hPx/it.img.height);
+      const dw = it.img.width*s, dh = it.img.height*s;
+      overlayCtx.drawImage(it.img, -dw/2, -dh/2, dw, dh);
+    }
+    overlayCtx.restore();
+  }
+  if(maskCanvas){
+    maskedCtx.clearRect(0,0,w,h);
+    maskedCtx.drawImage(overlayC,0,0);
+    maskedCtx.globalCompositeOperation = 'destination-in';
+    maskedCtx.drawImage(maskCanvas,0,0);
+    maskedCtx.globalCompositeOperation = 'source-over';
+    c.drawImage(maskedC,0,0);
+  } else {
+    c.drawImage(overlayC,0,0);
+  }
+}
+
+// 全分辨率导出：把谷子/装饰品按导出比例放大到原始分辨率渲染（保留清晰度）
+function drawItemsFull(octx, es){
+  if(!items.length) return;
+  const fullW = imgW(bgImage), fullH = imgH(bgImage);
+  const oc = document.createElement('canvas');
+  oc.width = fullW; oc.height = fullH;
+  const cctx = oc.getContext('2d');
+  for(const it of items){
+    if(!it.visible) continue;
+    cctx.save();
+    cctx.translate(it.x * es, it.y * es);
+    cctx.rotate(it.rotation * Math.PI/180);
+    if(it.shape === 'free'){
+      cctx.drawImage(it.img, -it.wPx*es/2, -it.hPx*es/2, it.wPx*es, it.hPx*es);
+      cctx.restore();
+      continue;
+    }
+    cctx.beginPath();
+    if(it.shape === 'circle'){
+      cctx.arc(0, 0, it.wPx*es/2, 0, Math.PI*2);
+    } else {
+      cctx.rect(-it.wPx*es/2, -it.hPx*es/2, it.wPx*es, it.hPx*es);
+    }
+    cctx.clip();
+    if(it.fit === 'stretch'){
+      cctx.drawImage(it.img, -it.wPx*es/2, -it.hPx*es/2, it.wPx*es, it.hPx*es);
+    } else {
+      const s = Math.max((it.wPx*es)/it.img.width, (it.hPx*es)/it.img.height);
+      const dw = it.img.width*s, dh = it.img.height*s;
+      cctx.drawImage(it.img, -dw/2, -dh/2, dw, dh);
+    }
+    cctx.restore();
+  }
+  // 应用痛层蒙版（放大到全分辨率）
+  if(maskCanvas){
+    const mc = document.createElement('canvas');
+    mc.width = fullW; mc.height = fullH;
+    const mctx = mc.getContext('2d');
+    mctx.drawImage(maskCanvas, 0, 0, fullW, fullH);
+    cctx.globalCompositeOperation = 'destination-in';
+    cctx.drawImage(mc, 0, 0);
+    cctx.globalCompositeOperation = 'source-over';
+  }
+  octx.drawImage(oc, 0, 0);
+}
+
+function renderScene(c, opt){
+  const w = canvas.width, h = canvas.height;
+  c.clearRect(0,0,w,h);
+  if(!bgImage){
+    c.fillStyle = '#14151a'; c.fillRect(0,0,w,h);
+    return;
+  }
+  c.drawImage(bgCanvas,0,0);
+  drawItemsMasked(c);
+
+  // 自适应网格参考线（仅显示，不导出）：默认只显示中心十字，放大后才细分出井字格
+  if(opt.grid && showGrid){
+    c.save();
+    const us = uiScale();
+    const zf = (fitZoom > 0) ? (zoom / fitZoom) : 1;
+    const k = Math.min(6, Math.max(0, Math.ceil(Math.log2(Math.max(1, zf)))));
+    // 中心十字（始终显示，稍深）
+    c.beginPath();
+    c.moveTo(w/2,0); c.lineTo(w/2,h);
+    c.moveTo(0,h/2); c.lineTo(w,h/2);
+    c.strokeStyle = 'rgba(128,128,128,0.55)';
+    c.lineWidth = 1.4*us;
+    c.stroke();
+    // 放大后才显示井字格三分线与细分线
+    if(k >= 1){
+      const N = 3 * Math.pow(2, k);   // 每条边等分数（6,12,24...）
+      const third = Math.pow(2, k);   // 1/3、2/3 主线对应的线索引
+      const mid = N / 2;              // 中心线索引（中心十字已画，跳过）
+      // 细分线（较浅较细）
+      c.beginPath();
+      for(let i=1;i<N;i++){
+        if(i===third || i===third*2 || i===mid) continue;
+        const gx = w*i/N, gy = h*i/N;
+        c.moveTo(gx,0); c.lineTo(gx,h);
+        c.moveTo(0,gy); c.lineTo(w,gy);
+      }
+      c.strokeStyle = 'rgba(128,128,128,0.28)';
+      c.lineWidth = 0.8*us;
+      c.stroke();
+      // 井字格主线（1/3、2/3，稍深更明显）
+      c.beginPath();
+      for(const i of [third, third*2]){
+        const gx = w*i/N, gy = h*i/N;
+        c.moveTo(gx,0); c.lineTo(gx,h);
+        c.moveTo(0,gy); c.lineTo(w,gy);
+      }
+      c.strokeStyle = 'rgba(128,128,128,0.55)';
+      c.lineWidth = 1.4*us;
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  if(opt.selection && maskCanvas){
+    if(!selConfirmed){
+      // 编辑中：选区内红色半透明
+      c.globalAlpha = 0.28;
+      c.drawImage(tintCanvas,0,0);
+      c.globalAlpha = 1;
+    }
+    // 已确定后：选区内外都不变色，仅以白色虚线区分
+    if(contourPath){
+      c.save();
+      c.lineWidth = Math.max(2, w/400);
+      c.setLineDash([7,5]);
+      c.strokeStyle = 'rgba(0,0,0,0.7)';
+      c.stroke(contourPath);
+      c.setLineDash([]);
+      c.strokeStyle = '#ffffff';
+      c.lineWidth = Math.max(1.2, w/800);
+      c.stroke(contourPath);
+      c.restore();
+    }
+  }
+
+  // 标定线（蓝色虚线 + 简单端点）
+  if(opt.calib && calib){
+    c.save();
+    const us = uiScale();
+    c.strokeStyle = '#4f8cff';
+    c.lineWidth = 2*us;
+    c.setLineDash([8*us, 6*us]);
+    c.beginPath(); c.moveTo(calib.x1,calib.y1); c.lineTo(calib.x2,calib.y2); c.stroke();
+    c.setLineDash([]);
+    for(const [x,y] of [[calib.x1,calib.y1],[calib.x2,calib.y2]]){
+      c.beginPath(); c.arc(x,y,5*us,0,Math.PI*2);
+      c.fillStyle='#4f8cff'; c.fill();
+      c.strokeStyle='#ffffff'; c.lineWidth=1.5*us; c.stroke();
+    }
+    c.restore();
+  }
+
+  // 套索预览
+  if(opt.lasso && lassoPoints.length){
+    c.save();
+    const us = uiScale();
+    c.strokeStyle='#5b8cff'; c.lineWidth=2.5*us;
+    c.setLineDash([5*us,4*us]);
+    c.beginPath();
+    c.moveTo(lassoPoints[0].x, lassoPoints[0].y);
+    for(let i=1;i<lassoPoints.length;i++) c.lineTo(lassoPoints[i].x, lassoPoints[i].y);
+    c.stroke();
+    c.setLineDash([]);
+    for(const p of lassoPoints){
+      c.beginPath(); c.arc(p.x,p.y,4*us,0,Math.PI*2);
+      c.fillStyle='#5b8cff'; c.fill();
+    }
+    c.restore();
+  }
+
+  // 选中图层手柄
+  if(opt.handles && selectedId){
+    const it = getItem(selectedId);
+    if(it && it.visible){
+      c.save();
+      c.translate(it.x,it.y); c.rotate(it.rotation*Math.PI/180);
+      c.strokeStyle='#5b8cff'; c.lineWidth=Math.max(1.5,w/500);
+      c.beginPath();
+      if(it.shape==='circle') c.arc(0,0,it.wPx/2,0,Math.PI*2);
+      else c.rect(-it.wPx/2,-it.hPx/2,it.wPx,it.hPx);
+      c.stroke();
+      c.restore();
+      const hp = rotateHandlePos(it);
+      const hr = (isMobile ? 16 : 9) * uiScale();
+      c.save();
+      c.strokeStyle='#5b8cff'; c.lineWidth=Math.max(1.5,w/500);
+      c.beginPath(); c.moveTo(it.x,it.y); c.lineTo(hp.x,hp.y); c.stroke();
+      c.beginPath(); c.arc(hp.x,hp.y,hr,0,Math.PI*2);
+      c.fillStyle='#5b8cff'; c.fill();
+      c.strokeStyle='#fff'; c.lineWidth=Math.max(1.5, hr/4); c.stroke();
+      c.restore();
+    }
+  }
+}
+
+function render(){
+  renderScene(ctx, {selection:true, calib:true, lasso:true, handles:true, grid:true});
+}
+
+/* ============ 图层栏 ============ */
+function renderLayers(){
+  const list = $('layersList');
+  list.innerHTML = '';
+  if(!items.length){
+    list.innerHTML = '<div class="hint">暂无图层</div>';
+    return;
+  }
+  const topFirst = [...items].reverse();
+  for(const it of topFirst){
+    const row = document.createElement('div');
+    row.className = 'layer-row' + (it.id===selectedId ? ' selected':'');
+    row.draggable = true;
+    row.dataset.id = it.id;
+
+    const thumb = document.createElement('div');
+    thumb.className = 'layer-thumb';
+    thumb.style.backgroundImage = 'url("'+it.url+'")';
+    const name = document.createElement('div');
+    name.className = 'layer-name';
+    name.textContent = it.name + (it.shape==='circle' ? ' · 圆' : (it.shape==='rect' ? ' · 矩形' : ' · 异形'));
+    const eye = document.createElement('button');
+    eye.className = 'layer-icon' + (it.visible?'':' off');
+    eye.textContent = it.visible ? '◉' : '◌';
+    eye.title = '显示/隐藏';
+    const dup = document.createElement('button');
+    dup.className = 'layer-icon'; dup.textContent = '⧉'; dup.title = '复制图层';
+    const merge = document.createElement('button');
+    merge.className = 'layer-icon'; merge.textContent = '↓'; merge.title = '向下合并';
+    const rename = document.createElement('button');
+    rename.className = 'layer-icon'; rename.textContent = '✎'; rename.title = '重命名';
+    const del = document.createElement('button');
+    del.className = 'layer-icon'; del.textContent = '✕'; del.title = '删除';
+
+    row.appendChild(thumb); row.appendChild(name);
+    row.appendChild(rename);
+    row.appendChild(eye); row.appendChild(dup); row.appendChild(merge); row.appendChild(del);
+    list.appendChild(row);
+
+    row.addEventListener('click', (e)=>{
+      if(e.target.closest('.layer-icon')) return;
+      selectedId = it.id;
+      setTool('select');
+      renderLayers(); render(); refreshProps();
+    });
+    eye.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      pushUndo();
+      it.visible = !it.visible;
+      renderLayers(); render();
+    });
+    dup.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      duplicateItem(it.id);
+    });
+    merge.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      mergeLayerDown(it.id);
+    });
+    rename.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const nn = prompt('重命名图层：', it.name);
+      if(nn && nn.trim()){ it.name = nn.trim(); renderLayers(); }
+    });
+    del.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      pushUndo();
+      items = items.filter(x=>x.id!==it.id);
+      if(selectedId===it.id) selectedId=null;
+      renderLayers(); render(); refreshProps();
+    });
+
+    // 拖拽排序
+    row.addEventListener('dragstart', (e)=>{
+      e.dataTransfer.setData('text/plain', it.id);
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('dragging');
+      _dragId = it.id;
+    });
+    row.addEventListener('dragend', ()=>{ row.classList.remove('dragging'); renderLayers(); });
+    row.addEventListener('dragover', (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      const r = row.getBoundingClientRect();
+      const before = (e.clientY - r.top) < r.height/2;
+      row.classList.remove('drop-above','drop-below');
+      row.classList.add(before ? 'drop-above':'drop-below');
+    });
+    row.addEventListener('dragleave', ()=>{ row.classList.remove('drop-above','drop-below'); });
+    row.addEventListener('drop', (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      row.classList.remove('drop-above','drop-below');
+      const dragId = e.dataTransfer.getData('text/plain') || _dragId;
+      if(!dragId || dragId===it.id) return;
+      const r = row.getBoundingClientRect();
+      const before = (e.clientY - r.top) < r.height/2;
+      reorderLayer(dragId, it.id, before);
+    });
+  }
+}
+
+let _dragId = null;
+function reorderLayer(dragId, overId, before){
+  const dragItem = items.find(i=>i.id===dragId);
+  const overItem = items.find(i=>i.id===overId);
+  if(!dragItem || !overItem) return;
+  pushUndo();
+  items = items.filter(i=>i.id!==dragId);
+  let overIdx = items.indexOf(overItem);
+  const insertAt = before ? overIdx+1 : overIdx;
+  items.splice(insertAt, 0, dragItem);
+  renderLayers(); render();
+}
+
+// 复制图层：新图层紧贴在原图层之上，共享同一张图片资源
+function duplicateItem(id){
+  const src = items.find(i=>i.id===id);
+  if(!src) return;
+  const idx = items.indexOf(src);
+  const copy = Object.assign({}, src, { id: uid() });
+  pushUndo();
+  items.splice(idx+1, 0, copy);
+  selectedId = copy.id;
+  renderLayers(); render(); refreshProps();
+  toast('已复制图层');
+}
+
+// 单个图层的渲染包围盒（考虑旋转）
+function itemBounds(it){
+  const w = it.wPx, h = it.hPx;
+  if(it.shape === 'circle'){
+    const r = w/2;
+    return { x0: it.x - r, y0: it.y - r, x1: it.x + r, y1: it.y + r };
+  }
+  const rad = it.rotation * Math.PI/180;
+  const hw = Math.abs(Math.cos(rad))*w/2 + Math.abs(Math.sin(rad))*h/2;
+  const hh = Math.abs(Math.sin(rad))*w/2 + Math.abs(Math.cos(rad))*h/2;
+  return { x0: it.x - hw, y0: it.y - hh, x1: it.x + hw, y1: it.y + hh };
+}
+
+// 把图层绘制到目标画布（相对 (ox,oy) 偏移，不应用痛层蒙版）
+function drawItemInto(cctx, it, ox, oy){
+  cctx.save();
+  cctx.translate(it.x - ox, it.y - oy);
+  cctx.rotate(it.rotation * Math.PI/180);
+  if(it.shape === 'free'){
+    cctx.drawImage(it.img, -it.wPx/2, -it.hPx/2, it.wPx, it.hPx);
+    cctx.restore();
+    return;
+  }
+  cctx.beginPath();
+  if(it.shape === 'circle'){
+    cctx.arc(0, 0, it.wPx/2, 0, Math.PI*2);
+  } else {
+    cctx.rect(-it.wPx/2, -it.hPx/2, it.wPx, it.hPx);
+  }
+  cctx.clip();
+  if(it.fit === 'stretch'){
+    cctx.drawImage(it.img, -it.wPx/2, -it.hPx/2, it.wPx, it.hPx);
+  } else {
+    const s = Math.max(it.wPx/it.img.width, it.hPx/it.img.height);
+    const dw = it.img.width*s, dh = it.img.height*s;
+    cctx.drawImage(it.img, -dw/2, -dh/2, dw, dh);
+  }
+  cctx.restore();
+}
+
+// 向下合并：当前图层与其下方图层合成为一张图
+function mergeLayerDown(id){
+  const idx = items.findIndex(i => i.id === id);
+  if(idx <= 0){ toast('该图层下方没有可合并的图层'); return; }
+  const top = items[idx];
+  const bottom = items[idx - 1];
+  const b1 = itemBounds(top), b2 = itemBounds(bottom);
+  const x0 = Math.min(b1.x0, b2.x0), y0 = Math.min(b1.y0, b2.y0);
+  const x1 = Math.max(b1.x1, b2.x1), y1 = Math.max(b1.y1, b2.y1);
+  const w = Math.max(1, Math.ceil(x1 - x0)), h = Math.max(1, Math.ceil(y1 - y0));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const cctx = c.getContext('2d');
+  drawItemInto(cctx, bottom, x0, y0);
+  drawItemInto(cctx, top, x0, y0);
+  const merged = {
+    id: uid(),
+    name: top.name,   // 合并后以上方图层的命名为准
+    img: c,
+    url: '',
+    shape: 'free',
+    fit: 'stretch',
+    wPx: w, hPx: h,
+    wCm: scale ? w/scale : w, hCm: scale ? h/scale : h,
+    x: x0 + w/2, y: y0 + h/2,
+    rotation: 0,
+    visible: true
+  };
+  merged.url = thumbOfItem(merged);
+  pushUndo();
+  items.splice(idx - 1, 2, merged);
+  selectedId = merged.id;
+  renderLayers(); render(); refreshProps();
+  toast('已向下合并图层');
+}
+
+/* ============ 属性面板 ============ */
+function refreshProps(){
+  const card = $('propsCard');
+  const it = getItem(selectedId);
+  // 手机端：选中装饰品时显示悬浮工具条
+  if(isMobile){
+    const bar = $('mobileItemBar');
+    if(it){
+      bar.classList.remove('hidden');
+      $('mobileRotRange').value = it.rotation;
+      $('mobileRotVal').textContent = Math.round(it.rotation) + '°';
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+  updateStepGuide();
+  if(!it){ card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  $('propsName').textContent = it.name;
+  $('propsSize').textContent = it.shape==='circle'
+    ? '圆形 · 直径 ' + it.wCm + ' cm  →  ' + fmt(it.wPx) + ' px'
+    : (it.shape==='rect'
+      ? '长方形 · ' + it.wCm + ' × ' + it.hCm + ' cm  →  ' + fmt(it.wPx) + ' × ' + fmt(it.hPx) + ' px'
+      : '异形 · ' + fmt(it.wCm) + ' × ' + fmt(it.hCm) + ' cm  →  ' + fmt(it.wPx) + ' × ' + fmt(it.hPx) + ' px');
+  $('rotRange').value = it.rotation;
+  $('rotVal').textContent = Math.round(it.rotation) + '°';
+  $('inX').value = Math.round(it.x);
+  $('inY').value = Math.round(it.y);
+}
+
+/* ============ 指针交互 ============ */
+function updateCursor(){
+  if(tool==='quick' || tool==='paint') canvas.style.cursor = 'none';
+  else if(tool==='lasso') canvas.style.cursor = 'crosshair';
+  else if(tool==='calibrate') canvas.style.cursor = 'crosshair';
+  else canvas.style.cursor = 'default';
+}
+
+// 更新笔刷光标（圆形，跟随鼠标，按笔刷大小缩放）
+function updateBrushCursor(e){
+  const bc = $('brushCursor');
+  if(tool !== 'quick' && tool !== 'paint'){
+    bc.style.display = 'none';
+    return;
+  }
+  const stageRect = $('stage').getBoundingClientRect();
+  const d = parseInt($('brushSize').value, 10) / uiScale();
+  bc.style.display = 'block';
+  bc.style.left = (e.clientX - stageRect.left) + 'px';
+  bc.style.top  = (e.clientY - stageRect.top) + 'px';
+  bc.style.width = d + 'px';
+  bc.style.height = d + 'px';
+}
+
+canvas.addEventListener('pointerdown', (e)=>{
+  if(!bgImage){ return; }
+  // 记录触点；双指进入平移/缩放手势
+  canvasPointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(canvasPointers.size === 2){
+    // 双指进入手势：撤销第一根手指误触产生的套索顶点，并立即刷新画面
+    if(drag && drag.type === 'lasso' && drag.idx !== undefined && lassoPoints[drag.idx]){
+      lassoPoints.splice(drag.idx, 1);
+    }
+    drag = null;
+    gesture = startGesture();
+    render();
+    return;
+  }
+  if(canvasPointers.size > 2) return;
+
+  const p = getPoint(e);
+
+  if(tool==='calibrate'){
+    pushUndo();
+    calibrating = true;
+    calib = {x1:p.x, y1:p.y, x2:p.x, y2:p.y, px:0};
+    drag = {type:'calib'};
+    render();
+    return;
+  }
+  if(tool==='quick'){
+    resetSelConfirm();
+    pushUndoMask();
+    quickRef = [];
+    quickLast = p;
+    quickBrushAt(p.x, p.y);
+    drag = {type:'quick'};
+    return;
+  }
+  if(tool==='paint'){
+    resetSelConfirm();
+    pushUndoMask();
+    if(selMode==='new'){ maskData = new Uint8Array(bgCanvas.width*bgCanvas.height); }
+    paintLast = p;
+    paintStamp(p.x, p.y);
+    schedulePaintRender();
+    drag = {type:'paint'};
+    return;
+  }
+  if(tool==='lasso'){
+    pushUndo();
+    const idx = lassoPoints.push(p) - 1;
+    drag = {type:'lasso', idx};
+    render();
+    updateFloatingSelButton();
+    return;
+  }
+  // select 工具
+  const it = pickItem(p.x, p.y);
+  if(selectedId){
+    const sel = getItem(selectedId);
+    if(sel && sel.visible){
+      const hp = rotateHandlePos(sel);
+      if(Math.hypot(p.x-hp.x, p.y-hp.y) <= (isMobile ? 22 : 12) * uiScale()){
+        selectedId = sel.id;
+        pushUndo();
+        drag = {type:'rotate', id:sel.id};
+        renderLayers(); render(); refreshProps();
+        return;
+      }
+    }
+  }
+  if(it){
+    selectedId = it.id;
+    pushUndo();
+    drag = {type:'item', id:it.id, dx:p.x-it.x, dy:p.y-it.y};
+    renderLayers(); render(); refreshProps();
+  } else {
+    if(isMobile){
+      // 手机上：在空白处单指拖动 = 平移画布；轻点 = 取消选中
+      const wrap = $('canvasWrap');
+      drag = {type:'pan', sx:e.clientX, sy:e.clientY, sl:wrap.scrollLeft, st:wrap.scrollTop, moved:false};
+    } else {
+      selectedId = null;
+      drag = null;
+      renderLayers(); render(); refreshProps();
+    }
+  }
+});
+
+window.addEventListener('pointermove', (e)=>{
+  // 更新触点位置
+  if(canvasPointers.has(e.pointerId)){
+    canvasPointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  }
+  if(gesture && canvasPointers.size === 2){
+    updateGesture();
+    return;
+  }
+  const p = getPoint(e);
+  if(!drag) return;
+  if(drag.type==='calib'){
+    calib.x2 = p.x; calib.y2 = p.y;
+    calib.px = Math.round(Math.hypot(p.x-calib.x1, p.y-calib.y1));
+    render();
+  } else if(drag.type==='item'){
+    const it = getItem(drag.id);
+    if(it){ it.x = p.x - drag.dx; it.y = p.y - drag.dy; render(); }
+  } else if(drag.type==='rotate'){
+    const it = getItem(drag.id);
+    if(it){
+      const ang = Math.atan2(p.y - it.y, p.x - it.x) * 180/Math.PI + 90;
+      it.rotation = snapRotation(ang);
+      render();
+    }
+  } else if(drag.type==='lasso'){
+    // 拖动时更新当前顶点，便于预览
+    if(drag.idx !== undefined && lassoPoints[drag.idx]){
+      lassoPoints[drag.idx] = p;
+      render();
+    }
+  } else if(drag.type==='quick'){
+    const brush = parseInt($('brushSize').value, 10);
+    if(Math.hypot(p.x-quickLast.x, p.y-quickLast.y) >= brush*0.4){
+      quickLast = p;
+      quickBrushAt(p.x, p.y);
+    }
+  } else if(drag.type==='paint'){
+    const brush = parseInt($('brushSize').value, 10);
+    const dist = Math.hypot(p.x-paintLast.x, p.y-paintLast.y);
+    const step = Math.max(1, brush/3);
+    const n = Math.max(1, Math.ceil(dist/step));
+    for(let i=1;i<=n;i++){
+      const t = i/n;
+      paintStamp(paintLast.x + (p.x-paintLast.x)*t, paintLast.y + (p.y-paintLast.y)*t);
+    }
+    paintLast = p;
+    schedulePaintRender();
+  } else if(drag.type==='pan'){
+    const wrap = $('canvasWrap');
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if(Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+    wrap.scrollLeft = drag.sl - dx;
+    wrap.scrollTop  = drag.st - dy;
+  }
+});
+
+window.addEventListener('pointerup', (e)=>{
+  canvasPointers.delete(e.pointerId);
+  if(gesture && canvasPointers.size < 2){
+    gesture = null;
+    return;
+  }
+  if(!drag) return;
+  if(drag.type==='calib'){
+    if(calib && calib.px < 5){
+      calib = null;
+    } else if(calib){
+      $('calibPx').textContent = calib.px;
+      $('calibResult').classList.remove('hidden');
+      toast('标记完成，请输入实际宽度（厘米）');
+      tool = 'select';
+      document.querySelectorAll('#selTools .btn').forEach(b=>{
+        b.classList.toggle('active', b.dataset.tool==='select');
+      });
+      updateCursor();
+      if(isMobile){ openMobileSheet(); }
+    }
+  }
+  if(drag.type==='pan'){
+    if(!drag.moved){
+      selectedId = null;
+      renderLayers(); render(); refreshProps();
+    }
+    drag = null;
+    render();
+    return;
+  }
+  if(drag.type==='item' || drag.type==='rotate'){
+    refreshProps();
+  }
+  if(drag.type==='quick' || drag.type==='paint'){
+    autoSwitchSelMode();
+    updateStepGuide();
+    updateFloatingSelButton();
+  }
+  drag = null;
+  render();
+});
+
+// 键盘
+window.addEventListener('keydown', (e)=>{
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  if(tag==='INPUT' || tag==='SELECT' || tag==='TEXTAREA') return;
+  const it = getItem(selectedId);
+  if((e.key==='Delete' || e.key==='Backspace')){
+    if(it){
+      e.preventDefault();
+      pushUndo();
+      items = items.filter(x=>x.id!==it.id);
+      selectedId = null;
+      renderLayers(); render(); refreshProps();
+    }
+    return;
+  }
+  if(it && (e.key.startsWith('Arrow'))){
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    if(e.key==='ArrowLeft') it.x -= step;
+    if(e.key==='ArrowRight') it.x += step;
+    if(e.key==='ArrowUp') it.y -= step;
+    if(e.key==='ArrowDown') it.y += step;
+    render(); refreshProps();
+  }
+  if(e.key==='Escape'){
+    if(tool==='lasso' && lassoPoints.length){ lassoPoints=[]; render(); }
+    if(calibrating){ calibrating=false; calib=null; render(); }
+    selectedId = null; renderLayers(); render(); refreshProps();
+  }
+});
+
+/* ============ 导出 ============ */
+function exportImage(){
+  if(!bgImage){ toast('请先导入痛包正视图'); return; }
+  // 全分辨率（原始图尺寸）导出
+  const fullW = imgW(bgImage), fullH = imgH(bgImage);
+  const es = fullW / canvas.width;   // 低分辨率交互坐标 → 全分辨率 的放大倍数
+  const out = document.createElement('canvas');
+  out.width = fullW; out.height = fullH;
+  const octx = out.getContext('2d');
+  const mode = $('exportMode').value;
+  if(mode === 'transparent'){
+    // 透明背景：只导出谷子/装饰品（按痛层区域裁剪），无痛包背景
+    drawItemsFull(octx, es);
+  } else {
+    octx.drawImage(bgImage, 0, 0, fullW, fullH);
+    drawItemsFull(octx, es);
+  }
+  const a = document.createElement('a');
+  a.download = (mode === 'transparent' ? '痛包排版_透明背景_' : '痛包模拟_') +
+    new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.png';
+  a.href = out.toDataURL('image/png');
+  a.click();
+  toast(mode === 'transparent' ? '已导出透明背景 PNG（原始分辨率）' : '已导出 PNG（原始分辨率）');
+}
+
+/* ============ 保存 / 加载项目 ============ */
+function imgToDataURL(img){
+  const w = imgW(img), h = imgH(img);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const cctx = c.getContext('2d');
+  cctx.drawImage(img, 0, 0);
+  return c.toDataURL('image/png');
+}
+
+function loadImage(src){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('图片加载失败'));
+    img.src = src;
+  });
+}
+
+function saveProject(){
+  if(!bgImage){ toast('请先导入痛包正视图'); return; }
+  const data = {
+    version: 1,
+    bg: imgToDataURL(bgImage),
+    scale: scale,
+    calib: calib ? {...calib} : null,
+    selConfirmed: !!selConfirmed,
+    mask: maskCanvas ? maskCanvas.toDataURL('image/png') : null,
+    items: items.map(it => ({
+      name: it.name, shape: it.shape, fit: it.fit,
+      wCm: it.wCm, hCm: it.hCm, wPx: it.wPx, hPx: it.hPx,
+      x: it.x, y: it.y, rotation: it.rotation, visible: it.visible,
+      img: imgToDataURL(it.img)
+    }))
+  };
+  const blob = new Blob([JSON.stringify(data)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.download = '痛包模拟项目_' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.json';
+  a.href = URL.createObjectURL(blob);
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  toast('项目已保存');
+}
+
+function loadProjectFile(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if(!data || !data.bg){ toast('项目文件无效'); return; }
+      restoreProject(data);
+    } catch(e){
+      console.error(e);
+      toast('项目文件解析失败');
+    }
+  };
+  reader.readAsText(file);
+}
+
+async function restoreProject(data){
+  try {
+    pushUndo();
+    const bgImg = await loadImage(data.bg);
+    applyBgCanvas(bgImg);
+    scale = data.scale !== undefined ? data.scale : null;
+    calib = data.calib || null;
+    selConfirmed = !!data.selConfirmed;
+    $('calibResult').classList.toggle('hidden', !calib);
+    if(calib){ $('calibPx').textContent = calib.px; }
+    // 蒙版
+    if(data.mask){
+      const mImg = await loadImage(data.mask);
+      const mc = document.createElement('canvas');
+      mc.width = canvas.width; mc.height = canvas.height;
+      const mctx = mc.getContext('2d');
+      mctx.drawImage(mImg, 0, 0, canvas.width, canvas.height);
+      const id = mctx.getImageData(0, 0, canvas.width, canvas.height);
+      maskData = new Uint8Array(canvas.width * canvas.height);
+      for(let i=0;i<maskData.length;i++){ if(id.data[i*4+3] > 128) maskData[i] = 1; }
+      rebuildMask();
+    } else {
+      maskData = null; maskCanvas = null; tintCanvas = null; outsideTintCanvas = null; contourPath = null;
+    }
+    // 图层
+    items = [];
+    for(const it of data.items || []){
+      const img = await loadImage(it.img);
+      const item = {
+        id: uid(), name: it.name, img, url: '',
+        shape: it.shape, fit: it.fit,
+        wCm: it.wCm, hCm: it.hCm, wPx: it.wPx, hPx: it.hPx,
+        x: it.x, y: it.y, rotation: it.rotation || 0, visible: it.visible !== false
+      };
+      item.url = thumbOfItem(item);
+      items.push(item);
+    }
+    selectedId = null;
+    setTool('select');
+    refreshScaleInfo(); renderLayers(); render(); refreshProps();
+    updateStepGuide(); updateFloatingSelButton();
+    toast('项目已加载');
+  } catch(e){
+    console.error(e);
+    toast('项目加载失败');
+  }
+}
+
+/* ============ 事件绑定 ============ */
+$('btnLoadBg').addEventListener('click', ()=>$('fileBg').click());
+$('btnLoadBg2').addEventListener('click', ()=>$('fileBg').click());
+$('fileBg').addEventListener('change', (e)=>{ if(e.target.files[0]) loadBg(e.target.files[0]); e.target.value=''; });
+
+$('btnCalibrate').addEventListener('click', startCalibrate);
+$('btnCancelCalibrate').addEventListener('click', ()=>{ calibrating=false; calib=null; setTool('select'); render(); });
+$('btnApplyScale').addEventListener('click', applyScale);
+$('inCm').addEventListener('keydown', (e)=>{ if(e.key==='Enter') applyScale(); });
+
+$('selTools').addEventListener('click', (e)=>{
+  const b = e.target.closest('.btn'); if(!b) return;
+  if(b.dataset.tool==='quick' || b.dataset.tool==='paint' || b.dataset.tool==='lasso'){
+    // 切回选区工具时自动回到「未确定」编辑状态（红色高亮）
+    resetSelConfirm();
+    render();
+    setTool(b.dataset.tool);
+  }
+});
+$('tolerance').addEventListener('input', (e)=> $('toleranceVal').textContent = e.target.value);
+$('brushSize').addEventListener('input', (e)=>{
+  $('brushSizeVal').textContent = e.target.value;
+  if(lastMouseEvent) updateBrushCursor(lastMouseEvent);
+});
+$('selMode').addEventListener('change', (e)=> selMode = e.target.value);
+$('btnClearSel').addEventListener('click', clearSelection);
+$('btnConfirmSel').addEventListener('click', confirmSelAndNext);
+$('btnFloatSel').addEventListener('click', ()=>{
+  if($('btnFloatSel').textContent === '闭合选区'){
+    if(lassoPoints.length < 3){ toast('至少需要 3 个点'); return; }
+    resetSelConfirm();
+    pushUndoMask();
+    rasterizeLasso(lassoPoints);
+    lassoPoints = [];
+    autoSwitchSelMode();
+    updateStepGuide();
+    render();
+    updateFloatingSelButton();
+    toast('选区已应用');
+  } else {
+    confirmSelAndNext();
+  }
+});
+$('btnCloseLasso').addEventListener('click', ()=>{
+  if(lassoPoints.length<3){ toast('至少需要 3 个点'); return; }
+  resetSelConfirm();
+  pushUndoMask();
+  rasterizeLasso(lassoPoints);
+  lassoPoints = [];
+  autoSwitchSelMode();
+  updateStepGuide();
+  render();
+  updateFloatingSelButton();
+  toast('选区已应用');
+});
+$('btnCancelLasso').addEventListener('click', ()=>{ lassoPoints=[]; render(); updateFloatingSelButton(); });
+
+$('btnLoadItem').addEventListener('click', ()=>$('fileItems').click());
+$('btnLoadItem2').addEventListener('click', ()=>$('fileItems').click());
+$('fileItems').addEventListener('change', (e)=>{ loadItemFiles([...e.target.files]); e.target.value=''; });
+
+$('btnModalConfirm').addEventListener('click', confirmAddItem);
+$('btnModalCancel').addEventListener('click', ()=>{
+  pendingItem = null;
+  $('modal').classList.remove('show');
+  processQueue();
+});
+
+document.querySelectorAll('input[name=shape]').forEach(r=>{
+  r.addEventListener('change', ()=>{
+    const v = r.value;
+    $('circleDims').classList.toggle('hidden', v!=='circle');
+    $('circlePresets').classList.toggle('hidden', v!=='circle');
+    $('rectDims').classList.toggle('hidden', v!=='rect');
+    $('rectPresets').classList.toggle('hidden', v!=='rect');
+    $('freeDims').classList.toggle('hidden', v!=='free');
+    $('fitField').classList.toggle('hidden', v==='free');
+    $('inFit').value = 'cover';
+    if(v==='free'){ drawFreeMarkPreview(); }
+  });
+});
+
+// 常用尺寸预设：点击填入尺寸
+$('circlePresets').addEventListener('click', (e)=>{
+  const b = e.target.closest('.chip'); if(!b) return;
+  $('inD').value = b.dataset.d;
+});
+$('rectPresets').addEventListener('click', (e)=>{
+  const b = e.target.closest('.chip'); if(!b) return;
+  $('inW').value = b.dataset.w;
+  $('inH').value = b.dataset.h;
+});
+
+// 其他形状抠图工具绑定
+$('freeTools').addEventListener('click', (e)=>{
+  const b = e.target.closest('.btn'); if(!b) return;
+  if(b.dataset.ftool) freeSetTool(b.dataset.ftool);
+});
+$('freeTolerance').addEventListener('input', (e)=> $('freeToleranceVal').textContent = e.target.value);
+$('freeBrushSize').addEventListener('input', (e)=> $('freeBrushSizeVal').textContent = e.target.value);
+$('freeSelMode').addEventListener('change', (e)=> freeSelMode = e.target.value);
+$('btnFreeClearSel').addEventListener('click', ()=>{
+  freeMaskData = null; freeLassoPoints = []; freeQuickRef = [];
+  drawFreeMarkPreview();
+  toast('已清除抠图选区');
+});
+$('btnFreeCloseLasso').addEventListener('click', ()=>{
+  if(freeLassoPoints.length < 3){ toast('至少需要 3 个点'); return; }
+  freeRasterizeLasso(freeLassoPoints);
+  freeLassoPoints = [];
+  drawFreeMarkPreview();
+  toast('抠图选区已应用');
+});
+
+// 其他形状：标长 / 抠图 画布交互
+$('freeMarkCanvas').addEventListener('pointerdown', (e)=>{
+  if(!pendingItem || !pendingItem.img || !imgW(pendingItem.img)) return;
+  const p = freeCanvasPoint(e);
+  if(freeTool==='mark'){
+    freeMark = { x1:p.x, y1:p.y, x2:p.x, y2:p.y, px:0 };
+    freeDrag = { type:'mark' };
+    drawFreeMarkPreview();
+  } else if(freeTool==='quick'){
+    freeQuickRef = [];
+    freeQuickLast = p;
+    freeQuickAt(p.x, p.y);
+    freeDrag = { type:'quick' };
+  } else if(freeTool==='lasso'){
+    freeLassoPoints.push(p);
+    freeDrag = { type:'lasso' };
+    drawFreeMarkPreview();
+  } else if(freeTool==='paint'){
+    if(freeSelMode==='new'){ freeMaskData = null; }
+    freePaintLast = p;
+    freePaintStamp(p.x, p.y);
+    drawFreeMarkPreview();
+    freeDrag = { type:'paint' };
+  }
+});
+window.addEventListener('pointermove', (e)=>{
+  if(!freeDrag) return;
+  const p = freeCanvasPoint(e);
+  if(freeDrag.type==='mark'){
+    freeMark.x2 = p.x; freeMark.y2 = p.y;
+    freeMark.px = Math.round(Math.hypot(p.x-freeMark.x1, p.y-freeMark.y1));
+    drawFreeMarkPreview();
+  } else if(freeDrag.type==='quick'){
+    const brush = parseInt($('freeBrushSize').value, 10);
+    if(Math.hypot(p.x-freeQuickLast.x, p.y-freeQuickLast.y) >= brush*0.4){
+      freeQuickLast = p;
+      freeQuickAt(p.x, p.y);
+    }
+  } else if(freeDrag.type==='lasso'){
+    if(freeLassoPoints.length){
+      freeLassoPoints[freeLassoPoints.length-1] = p;
+      drawFreeMarkPreview();
+    }
+  } else if(freeDrag.type==='paint'){
+    const brush = parseInt($('freeBrushSize').value, 10);
+    const dist = Math.hypot(p.x-freePaintLast.x, p.y-freePaintLast.y);
+    const step = Math.max(1, brush/3);
+    const n = Math.max(1, Math.ceil(dist/step));
+    for(let i=1;i<=n;i++){
+      const t = i/n;
+      freePaintStamp(freePaintLast.x + (p.x-freePaintLast.x)*t, freePaintLast.y + (p.y-freePaintLast.y)*t);
+    }
+    freePaintLast = p;
+    drawFreeMarkPreview();
+  }
+});
+window.addEventListener('pointerup', ()=>{
+  if(!freeDrag) return;
+  freeDrag = null;
+  drawFreeMarkPreview();
+});
+
+$('rotRange').addEventListener('pointerdown', ()=>{ pushUndo(); });
+$('rotRange').addEventListener('input', (e)=>{
+  const it = getItem(selectedId); if(!it) return;
+  it.rotation = snapRotation(parseFloat(e.target.value));
+  $('rotRange').value = it.rotation;
+  $('rotVal').textContent = Math.round(it.rotation) + '°';
+  render();
+});
+$('btnResetRot').addEventListener('click', ()=>{
+  const it = getItem(selectedId); if(!it) return;
+  pushUndo();
+  it.rotation = 0; refreshProps(); render();
+});
+$('inX').addEventListener('input', (e)=>{
+  const it = getItem(selectedId); if(!it) return;
+  const v = parseFloat(e.target.value); if(isFinite(v)){ it.x=v; render(); }
+});
+$('inY').addEventListener('input', (e)=>{
+  const it = getItem(selectedId); if(!it) return;
+  const v = parseFloat(e.target.value); if(isFinite(v)){ it.y=v; render(); }
+});
+$('btnDupItem').addEventListener('click', ()=>{
+  if(selectedId) duplicateItem(selectedId);
+});
+$('btnDeleteItem').addEventListener('click', ()=>{
+  const it = getItem(selectedId); if(!it) return;
+  pushUndo();
+  items = items.filter(x=>x.id!==it.id);
+  selectedId = null;
+  renderLayers(); render(); refreshProps();
+});
+
+$('btnExport').addEventListener('click', exportImage);
+$('btnExport2').addEventListener('click', exportImage);
+
+// 保存 / 加载项目
+$('btnSaveProject').addEventListener('click', saveProject);
+$('btnLoadProject').addEventListener('click', ()=>$('fileProject').click());
+$('fileProject').addEventListener('change', (e)=>{ if(e.target.files[0]) loadProjectFile(e.target.files[0]); e.target.value=''; });
+
+// 撤回 / 重做
+$('btnUndo').addEventListener('click', undo);
+$('btnUndoMobile').addEventListener('click', undo);
+$('btnRedo').addEventListener('click', redo);
+$('btnRedoMobile').addEventListener('click', redo);
+window.addEventListener('keydown', (e)=>{
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  if(tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')){
+    e.preventDefault();
+    if(e.shiftKey){ redo(); } else { undo(); }
+  } else if((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')){
+    e.preventDefault();
+    redo();
+  }
+});
+
+// 缩放工具栏
+$('zoomIn').addEventListener('click', ()=>{ userZoomed = true; zoomCenter(1.25); });
+$('zoomOut').addEventListener('click', ()=>{ userZoomed = true; zoomCenter(1/1.25); });
+function toggleGrid(){
+  showGrid = !showGrid;
+  render();
+  $('btnGridZoom').classList.toggle('on', showGrid);
+}
+$('btnGridZoom').addEventListener('click', toggleGrid);
+// Ctrl + 滚轮缩放（以光标为锚点）
+$('canvasWrap').addEventListener('wheel', (e)=>{
+  if(!e.ctrlKey) return;
+  e.preventDefault();
+  userZoomed = true;
+  zoomToPoint(e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 1/1.15);
+}, { passive:false });
+// 窗口大小变化时，若用户未手动缩放则重新适应
+window.addEventListener('resize', ()=>{
+  computeFitZoom();
+  if(!userZoomed){ setZoom(fitZoom); }
+});
+
+// 笔刷光标跟随
+canvas.addEventListener('pointermove', (e)=>{
+  lastMouseEvent = e;
+  updateBrushCursor(e);
+});
+canvas.addEventListener('pointerleave', ()=> $('brushCursor').style.display = 'none');
+
+// 触摸被系统取消时清理拖拽/手势状态
+window.addEventListener('pointercancel', (e)=>{
+  canvasPointers.delete(e.pointerId);
+  if(gesture && canvasPointers.size < 2) gesture = null;
+  drag = null;
+  freeDrag = null;
+});
+
+// ============ 手机端滑出面板 ============
+let mobileTab = '';
+function applyMobileGroup(tab){
+  mobileTab = tab;
+  document.querySelectorAll('#sidebar .card[data-group]').forEach(card=>{
+    card.classList.toggle('group-hide', card.dataset.group !== tab);
+  });
+  $('mobileSheetTitle').textContent = { s1:'导入', s2:'标定', s3:'选区', s4:'排版', s5:'导出' }[tab] || '';
+}
+function openMobileSheet(){ $('sidebar').classList.add('sheet-open'); syncSheetPull(); updateFloatingSelButton(); }
+function closeMobileSheet(){ $('sidebar').classList.remove('sheet-open'); syncSheetPull(); updateFloatingSelButton(); }
+
+// 底部上拉 / 顶部下拉 手势
+let sheetDrag = null;
+function syncSheetPull(){
+  if(!isMobile) return;
+  const open = $('sidebar').classList.contains('sheet-open');
+  $('sheetPull').style.display = open ? 'none' : 'block';
+}
+function sheetHeight(){ return $('sidebar').offsetHeight || 300; }
+function startSheetDrag(e, open){
+  if(!isMobile) return;
+  sheetDrag = {
+    startY: e.clientY,
+    startPos: open ? 0 : sheetHeight(),
+    open: open,
+    lastY: open ? 0 : sheetHeight()
+  };
+  $('sidebar').style.transition = 'none';
+}
+function moveSheetDrag(e){
+  if(!sheetDrag) return;
+  const h = sheetHeight();
+  let y = sheetDrag.startPos + (e.clientY - sheetDrag.startY);
+  y = Math.max(0, Math.min(h, y));
+  sheetDrag.lastY = y;
+  $('sidebar').style.transform = 'translateY(' + y + 'px)';
+}
+function endSheetDrag(){
+  if(!sheetDrag) return;
+  const h = sheetHeight();
+  const open = sheetDrag.lastY < h * 0.5;
+  $('sidebar').style.transition = '';
+  $('sidebar').style.transform = '';
+  if(open){ openMobileSheet(); } else { closeMobileSheet(); }
+  sheetDrag = null;
+}
+
+$('sheetPull').addEventListener('pointerdown', (e)=>{ e.preventDefault(); startSheetDrag(e, false); });
+$('mobileSheetHead').addEventListener('pointerdown', (e)=>{
+  if(e.target.closest && e.target.closest('#btnSheetClose')) return;
+  e.preventDefault();
+  startSheetDrag(e, true);
+});
+window.addEventListener('pointermove', moveSheetDrag);
+window.addEventListener('pointerup', endSheetDrag);
+window.addEventListener('pointercancel', endSheetDrag);
+
+/* ============ 步骤引导 ============ */
+function hasMask(){
+  if(!maskData) return false;
+  for(let i=0;i<maskData.length;i++){ if(maskData[i]) return true; }
+  return false;
+}
+function currentStep(){
+  if(!bgImage) return 1;
+  if(!scale) return 2;
+  if(!hasMask()) return 3;
+  if(items.length === 0) return 4;
+  return 5;
+}
+function stepAction(step){
+  const g = 's' + step;
+  if(isMobile){
+    // 进入选区步骤时回到「未确定」状态，方便直接编辑（红色高亮）
+    if(step === 3){ resetSelConfirm(); render(); updateFloatingSelButton(); }
+    if($('sidebar').classList.contains('sheet-open') && mobileTab === g){
+      closeMobileSheet();
+    } else {
+      applyMobileGroup(g);
+      openMobileSheet();
+    }
+  } else {
+    // 桌面：滚动到右侧栏对应步骤卡片
+    const card = document.querySelector('.card[data-group="'+g+'"]');
+    if(card) card.scrollIntoView({behavior:'smooth', block:'start'});
+  }
+}
+function updateStepGuide(){
+  const step = currentStep();
+  document.querySelectorAll('#stepBar .s').forEach(b=>{
+    const n = parseInt(b.dataset.step, 10);
+    b.classList.toggle('done', n < step);
+    b.classList.toggle('current', n === step);
+  });
+}
+
+$('btnSheetClose').addEventListener('click', closeMobileSheet);
+
+// 面板打开时，点击面板以外的部分自动收起面板（撤回/重做按钮除外）
+document.addEventListener('pointerdown', (e)=>{
+  if(!isMobile) return;
+  if($('modal').classList.contains('show')) return;
+  if(!$('sidebar').classList.contains('sheet-open')) return;
+  if($('sidebar').contains(e.target)) return;
+  if(e.target.closest && e.target.closest('#stepBar')) return;
+  if(e.target.closest && e.target.closest('#btnUndoMobile')) return;
+  if(e.target.closest && e.target.closest('#btnRedoMobile')) return;
+  closeMobileSheet();
+});
+
+// 步骤条点击跳转
+$('stepBar').addEventListener('click', (e)=>{
+  const b = e.target.closest('.s'); if(!b) return;
+  stepAction(parseInt(b.dataset.step, 10));
+});
+
+// 手机端：点击画面中间的提示直接导入痛包正视图
+if(isMobile){
+  $('stageHintText').textContent = '点击导入痛包正视图';
+}
+$('stageHint').addEventListener('click', ()=>{
+  if(isMobile && !bgImage){ $('fileBg').click(); }
+});
+
+// 手机端：选中装饰品的悬浮工具条（旋转/复制/删除）
+$('mobileRotRange').addEventListener('pointerdown', ()=>{ pushUndo(); });
+$('mobileRotRange').addEventListener('input', (e)=>{
+  const it = getItem(selectedId); if(!it) return;
+  it.rotation = snapRotation(parseFloat(e.target.value));
+  $('mobileRotRange').value = it.rotation;
+  $('mobileRotVal').textContent = Math.round(it.rotation) + '°';
+  render();
+});
+$('btnMobileDup').addEventListener('click', ()=>{ if(selectedId) duplicateItem(selectedId); });
+$('btnMobileDel').addEventListener('click', ()=>{
+  const it = getItem(selectedId); if(!it) return;
+  pushUndo();
+  items = items.filter(x=>x.id!==it.id);
+  selectedId = null;
+  renderLayers(); render(); refreshProps();
+});
+
+// 初始
+computeFitZoom();
+zoom = fitZoom;
+applyZoom();
+refreshScaleInfo();
+renderLayers();
+render();
+updateStepGuide();
+setTool('select');
+if(isMobile){
+  // 手机端刚打开时直接弹出第一步「导入痛包正视图」面板
+  applyMobileGroup('s1');
+  openMobileSheet();
+}
+syncSheetPull();
+</script>
+</body>
+</html>
