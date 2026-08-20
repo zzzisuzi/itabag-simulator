@@ -688,10 +688,11 @@
   <div class="modal-box">
     <h3>导出完成</h3>
     <div id="exportPreviewWrap"><img id="exportPreviewImg" alt="导出预览"></div>
-    <div class="hint" style="margin-top:6px;text-align:center">长按图片可保存到相册</div>
+    <div class="hint" style="margin-top:6px;text-align:center">可点「保存图片」或长按图片保存到相册</div>
     <div class="modal-actions">
+      <button class="btn primary" id="btnExportDownload">保存图片</button>
       <button class="btn" id="btnExportShare" style="display:none">分享</button>
-      <button class="btn primary" id="btnExportPreviewClose">关闭</button>
+      <button class="btn ghost" id="btnExportPreviewClose">关闭</button>
     </div>
   </div>
 </div>
@@ -2722,6 +2723,16 @@ function dataUrlToBlob(dataUrl){
   return new Blob([arr], {type:mime});
 }
 $('btnExportPreviewClose').addEventListener('click', ()=> $('exportModal').classList.remove('show'));
+// 保存图片：直接下载（Android Chrome/Edge 等所有浏览器都支持），解决部分浏览器长按不出菜单的问题
+$('btnExportDownload').addEventListener('click', ()=>{
+  const img = $('exportPreviewImg');
+  if(!img.src){ return; }
+  const a = document.createElement('a');
+  a.download = '痛包排版.png';
+  a.href = img.src;
+  a.click();
+  toast('已保存到下载目录，可到相册/文件管理中查看');
+});
 $('btnExportShare').addEventListener('click', ()=>{
   try {
     const file = new File([dataUrlToBlob($('exportPreviewImg').src)], '痛包排版.png', {type:'image/png'});
