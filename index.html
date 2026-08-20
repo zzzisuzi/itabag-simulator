@@ -174,6 +174,11 @@
   .range-row{ display:flex; align-items:center; gap:10px; margin-top:8px; }
   .range-row input[type=range]{ flex:1; }
   .range-row .val{ color:#fff; min-width:34px; text-align:right; font-variant-numeric:tabular-nums; }
+  .wm-opt{
+    display:flex; align-items:center; gap:6px; margin-top:8px;
+    color:var(--muted); font-size:12px; cursor:pointer; user-select:none;
+  }
+  .wm-opt input{ accent-color:var(--accent); cursor:pointer; }
 
   /* layers */
   #layersList{ display:flex; flex-direction:column; gap:6px; margin-top:8px; }
@@ -559,6 +564,9 @@
           <option value="transparent">透明背景（仅谷子）</option>
         </select>
       </div>
+      <label class="wm-opt" title="导出图右下角带上工具网址，方便他人找到本工具">
+        <input type="checkbox" id="exportWatermark" checked> 导出图带水印（网址）
+      </label>
       <div class="row">
         <button class="btn primary" id="btnExport2">导出 PNG 图片</button>
       </div>
@@ -2656,6 +2664,10 @@ function exportImage(){
     octx.drawImage(bgImage, 0, 0, fullW, fullH);
     drawItemsFull(octx, es);
   }
+  // 可选水印：导出图右下角带工具网址（默认开，可关）
+  if($('exportWatermark').checked){
+    drawExportWatermark(octx, fullW, fullH);
+  }
   const dataUrl = out.toDataURL('image/png');
   if(isMobile){
     // 手机端：弹预览大图，长按保存 / 分享
@@ -2669,6 +2681,27 @@ function exportImage(){
   a.href = dataUrl;
   a.click();
   toast(mode === 'transparent' ? '已导出透明背景 PNG（原始分辨率）' : '已导出 PNG（原始分辨率）');
+}
+
+// 导出水印：右下角半透明黑底白字，字号随图片分辨率缩放
+function drawExportWatermark(octx, w, h){
+  const text = '痛包模拟器 zzzisuzi.github.io/itabag-simulator';
+  const fs = Math.max(12, Math.round(w / 60));
+  const pad = Math.round(fs * 0.7);
+  octx.save();
+  octx.font = fs + 'px "Segoe UI","Microsoft YaHei",sans-serif';
+  const tw = octx.measureText(text).width;
+  const bx = w - tw - pad * 2;
+  const by = h - fs - pad * 2;
+  // 半透明黑底
+  octx.fillStyle = 'rgba(0,0,0,0.45)';
+  octx.fillRect(bx - pad, by - pad, tw + pad * 2, fs + pad * 2);
+  // 白字
+  octx.fillStyle = 'rgba(255,255,255,0.92)';
+  octx.textAlign = 'left';
+  octx.textBaseline = 'middle';
+  octx.fillText(text, bx, by + fs / 2);
+  octx.restore();
 }
 
 // 手机端导出预览：大图 + 长按保存 / 系统分享
