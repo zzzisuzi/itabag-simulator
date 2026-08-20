@@ -245,7 +245,10 @@
     background:#14151a; border:1px solid var(--line); border-radius:7px;
     overflow:auto; max-height:62vh; padding:8px;
   }
-  #exportPreviewImg{ max-width:100%; max-height:58vh; border-radius:4px; }
+  #exportPreviewImg{
+    max-width:100%; max-height:58vh; border-radius:4px;
+    -webkit-touch-callout:default; /* iOS 长按允许弹出“存储图像”菜单 */
+  }
   .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
 
   .toast{
@@ -3204,7 +3207,8 @@ $('btnSheetClose').addEventListener('click', closeMobileSheet);
 // 面板打开时，点击面板以外的部分自动收起面板（撤回/重做按钮除外）
 document.addEventListener('pointerdown', (e)=>{
   if(!isMobile) return;
-  if($('modal').classList.contains('show')) return;
+  // 任何弹窗打开时不收面板：避免长按图片（保存菜单）时布局移动导致手势中断
+  if(document.querySelector('.modal.show')) return;
   if(!$('sidebar').classList.contains('sheet-open')) return;
   if($('sidebar').contains(e.target)) return;
   if(e.target.closest && e.target.closest('#stepBar')) return;
