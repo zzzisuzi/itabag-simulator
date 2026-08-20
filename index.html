@@ -235,6 +235,12 @@
     min-height:240px;
   }
   #cropCanvas{ display:block; max-width:100%; max-height:460px; touch-action:none; -webkit-tap-highlight-color:transparent; user-select:none; cursor:crosshair; }
+  #exportPreviewWrap{
+    display:flex; align-items:center; justify-content:center;
+    background:#14151a; border:1px solid var(--line); border-radius:7px;
+    overflow:auto; max-height:62vh; padding:8px;
+  }
+  #exportPreviewImg{ max-width:100%; max-height:58vh; border-radius:4px; }
   .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
 
   .toast{
@@ -246,6 +252,11 @@
   }
   .toast.show{ opacity:1; }
   .hidden{ display:none !important; }
+  /* 视觉隐藏但保持渲染的文件输入框：避免 Android 首次点击打不开选择器 */
+  .fh-input{
+    position:fixed; left:-9999px; top:0;
+    width:1px; height:1px; opacity:0;
+  }
   ::-webkit-scrollbar{ width:10px; height:10px; }
   ::-webkit-scrollbar-thumb{ background:#3a3d47; border-radius:6px; }
 
@@ -337,6 +348,7 @@
   html.is-mobile #mobileItemBar .lbl{ font-size:12px; color:var(--muted); white-space:nowrap; }
   html.is-mobile #mobileItemBar input[type=range]{ flex:1; }
   html.is-mobile #mobileItemBar .val{ color:#fff; font-size:12px; min-width:30px; text-align:right; }
+  html.is-mobile #canvasWrap{ overscroll-behavior:contain; }
   /* 手机端精简：隐藏长说明文字、属性卡 */
   html.is-mobile .card .hint{ display:none; }
   html.is-mobile #propsCard{ display:none !important; }
@@ -497,7 +509,6 @@
       </div>
       <div class="row">
         <select id="selMode" style="flex:1">
-          <option value="new">新建选区</option>
           <option value="add">添加到选区</option>
           <option value="sub">从选区减去</option>
         </select>
@@ -617,7 +628,6 @@
       </div>
       <div class="row">
         <select id="freeSelMode" style="flex:1">
-          <option value="new">新建选区</option>
           <option value="add">添加到选区</option>
           <option value="sub">从选区减去</option>
         </select>
@@ -662,11 +672,24 @@
   </div>
 </div>
 
+<!-- 导出预览弹窗（手机端：预览 + 长按保存 / 分享） -->
+<div id="exportModal" class="modal">
+  <div class="modal-box">
+    <h3>导出完成</h3>
+    <div id="exportPreviewWrap"><img id="exportPreviewImg" alt="导出预览"></div>
+    <div class="hint" style="margin-top:6px;text-align:center">长按图片可保存到相册</div>
+    <div class="modal-actions">
+      <button class="btn" id="btnExportShare" style="display:none">分享</button>
+      <button class="btn primary" id="btnExportPreviewClose">关闭</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
-<input type="file" id="fileBg" accept="image/*" hidden>
-<input type="file" id="fileItems" accept="image/*" multiple hidden>
-<input type="file" id="fileProject" accept=".json,application/json" hidden>
+<input type="file" id="fileBg" accept="image/*" class="fh-input" tabindex="-1">
+<input type="file" id="fileItems" accept="image/*" multiple class="fh-input" tabindex="-1">
+<input type="file" id="fileProject" accept=".json,application/json" class="fh-input" tabindex="-1">
 
 <script>
 "use strict";
@@ -718,6 +741,7 @@ function pushUndo(){          // 图层/标定/导入等：不还原选区
   redoStack = [];
   undoStack.push(makeSnapshot());
   if(undoStack.length > 50) undoStack.shift();
+  syncUndoRedoButtons();
 }
 function pushUndoMask(){      // 选区操作：还原选区
   redoStack = [];
@@ -725,6 +749,7 @@ function pushUndoMask(){      // 选区操作：还原选区
   s.mask = maskData ? maskData.slice() : null;
   undoStack.push(s);
   if(undoStack.length > 50) undoStack.shift();
+  syncUndoRedoButtons();
 }
 function undo(){
   if(!undoStack.length){ toast('没有可撤回的操作'); return; }
@@ -739,6 +764,13 @@ function redo(){
   if(undoStack.length > 50) undoStack.shift();
   restoreSnapshot(redoStack.pop());
   toast('已重做');
+}
+// 同步撤回/重做按钮可用状态（栈空时置灰）
+function syncUndoRedoButtons(){
+  $('btnUndo').disabled = undoStack.length === 0;
+  $('btnRedo').disabled = redoStack.length === 0;
+  $('btnUndoMobile').disabled = undoStack.length === 0;
+  $('btnRedoMobile').disabled = redoStack.length === 0;
 }
 function restoreSnapshot(s){
   bgImage = s.bgImage;
@@ -780,10 +812,11 @@ function restoreSnapshot(s){
   render();
   refreshProps();
   updateFloatingSelButton();
+  syncUndoRedoButtons();
 }
 
 let tool = 'select';         // select | quick | paint | lasso
-let selMode = 'new';         // new | add | sub
+let selMode = 'add';         // add | sub（选区默认累积添加，清除请用「清除选区」）
 
 // 显示缩放
 let zoom = 1;                // 显示缩放倍数（只影响显示，不影响导出）
@@ -810,7 +843,7 @@ let paintPending = false;    // 是否已有待执行的选区重建（rAF 节�
 // 其他形状：标长 + 抠图
 let freeMark = null;         // {x1,y1,x2,y2,px} 标长标记（原始图片像素坐标）
 let freeTool = 'mark';       // mark | quick | lasso | paint
-let freeSelMode = 'new';     // new | add | sub
+let freeSelMode = 'add';    // add | sub（抠图选区默认累积添加）
 let freeImgData = null;      // item 图像素数据（缓存）
 let freeMaskData = null;     // item 图抠图选区（1=选中）
 let freeQuickRef = [];       // 抠图快速选择参考色
@@ -1059,6 +1092,7 @@ function applyScale(){
   render();
   updateStepGuide();
   if(isMobile){
+    // 标定完成自动跳到选区步骤
     applyMobileGroup('s3');
     openMobileSheet();
   }
@@ -1142,9 +1176,8 @@ function applyMaskFromVisited(vis){
   const w = bgCanvas.width, h = bgCanvas.height;
   if(!maskData){ maskData = new Uint8Array(w*h); }
   for(let i=0;i<vis.length;i++){
-    if(selMode==='add') maskData[i] = maskData[i] || vis[i];
-    else if(selMode==='sub') maskData[i] = maskData[i] && (vis[i]?0:1);
-    else maskData[i] = vis[i];
+    if(selMode==='sub') maskData[i] = maskData[i] && (vis[i]?0:1);
+    else maskData[i] = maskData[i] || vis[i];
   }
   rebuildMask();
 }
@@ -1200,9 +1233,8 @@ function rasterizeLasso(poly){
     for(let x=minx;x<=maxx;x++){
       const inside = pointInPoly(x+0.5, y+0.5, poly);
       const idx = y*w+x;
-      if(selMode==='add') maskData[idx] = maskData[idx] || (inside?1:0);
-      else if(selMode==='sub') maskData[idx] = maskData[idx] && (inside?0:1);
-      else maskData[idx] = inside?1:0;
+      if(selMode==='sub') maskData[idx] = maskData[idx] && (inside?0:1);
+      else maskData[idx] = maskData[idx] || (inside?1:0);
     }
   }
   rebuildMask();
@@ -1297,16 +1329,6 @@ function resetSelConfirm(){
   selConfirmed = false;
 }
 
-// 已有选区后，默认模式自动切到「添加到选区」，避免误覆盖
-function autoSwitchSelMode(){
-  if(selMode !== 'new' || !maskData) return;
-  let any = false;
-  for(let i=0;i<maskData.length;i++){ if(maskData[i]){ any = true; break; } }
-  if(any){
-    selMode = 'add';
-    $('selMode').value = 'add';
-  }
-}
 
 // 手机端浮动按钮：套索未闭合显示「闭合选区」，已有选区未确定显示「确定痛层区域」
 function updateFloatingSelButton(){
@@ -1382,7 +1404,7 @@ function showAddItemModal(){
   $('inFreeCm').value = '';
   freeMark = null; freeImgData = null; freeMaskData = null;
   freeQuickRef = []; freeQuickLast = null; freePaintLast = null; freeLassoPoints = [];
-  freeDrag = null; freeSelMode = 'new';
+  freeDrag = null; freeSelMode = 'add';
   freeSetTool('mark');
   $('modal').classList.add('show');
 }
@@ -1431,6 +1453,9 @@ function confirmAddItem(){
     $('modal').classList.remove('show');
     setTool('select');
     renderLayers(); render(); refreshProps();
+    if(isMobile && items.length === 1){
+      toast('已添加，可继续导入或点「导出」出图');
+    }
     processQueue();
   };
 
@@ -1515,9 +1540,8 @@ function freeEnsureMask(){
 function freeApplyVisited(vis){
   const m = freeEnsureMask();
   for(let i=0;i<vis.length;i++){
-    if(freeSelMode==='add') m[i] = m[i] || vis[i];
-    else if(freeSelMode==='sub') m[i] = m[i] && (vis[i]?0:1);
-    else m[i] = vis[i];
+    if(freeSelMode==='sub') m[i] = m[i] && (vis[i]?0:1);
+    else m[i] = m[i] || vis[i];
   }
   drawFreeMarkPreview();
 }
@@ -1571,9 +1595,8 @@ function freeRasterizeLasso(poly){
     for(let x=minx;x<=maxx;x++){
       const inside = pointInPoly(x+0.5, y+0.5, poly);
       const idx = y*w+x;
-      if(freeSelMode==='add') m[idx] = m[idx] || (inside?1:0);
-      else if(freeSelMode==='sub') m[idx] = m[idx] && (inside?0:1);
-      else m[idx] = inside?1:0;
+      if(freeSelMode==='sub') m[idx] = m[idx] && (inside?0:1);
+      else m[idx] = m[idx] || (inside?1:0);
     }
   }
   drawFreeMarkPreview();
@@ -2436,7 +2459,6 @@ canvas.addEventListener('pointerdown', (e)=>{
   if(tool==='paint'){
     resetSelConfirm();
     pushUndoMask();
-    if(selMode==='new'){ maskData = new Uint8Array(bgCanvas.width*bgCanvas.height); }
     paintLast = p;
     paintStamp(p.x, p.y);
     schedulePaintRender();
@@ -2459,8 +2481,7 @@ canvas.addEventListener('pointerdown', (e)=>{
       const hp = rotateHandlePos(sel);
       if(Math.hypot(p.x-hp.x, p.y-hp.y) <= (isMobile ? 22 : 12) * uiScale()){
         selectedId = sel.id;
-        pushUndo();
-        drag = {type:'rotate', id:sel.id};
+        drag = {type:'rotate', id:sel.id, pushed:false};
         renderLayers(); render(); refreshProps();
         return;
       }
@@ -2468,8 +2489,7 @@ canvas.addEventListener('pointerdown', (e)=>{
   }
   if(it){
     selectedId = it.id;
-    pushUndo();
-    drag = {type:'item', id:it.id, dx:p.x-it.x, dy:p.y-it.y};
+    drag = {type:'item', id:it.id, dx:p.x-it.x, dy:p.y-it.y, pushed:false};
     renderLayers(); render(); refreshProps();
   } else {
     if(isMobile){
@@ -2501,10 +2521,15 @@ window.addEventListener('pointermove', (e)=>{
     render();
   } else if(drag.type==='item'){
     const it = getItem(drag.id);
-    if(it){ it.x = p.x - drag.dx; it.y = p.y - drag.dy; render(); }
+    if(it){
+      // 懒记录：真正开始移动时才入撤销栈（点选不产生历史，保住重做栈）
+      if(!drag.pushed){ pushUndo(); drag.pushed = true; }
+      it.x = p.x - drag.dx; it.y = p.y - drag.dy; render();
+    }
   } else if(drag.type==='rotate'){
     const it = getItem(drag.id);
     if(it){
+      if(!drag.pushed){ pushUndo(); drag.pushed = true; }
       const ang = Math.atan2(p.y - it.y, p.x - it.x) * 180/Math.PI + 90;
       it.rotation = snapRotation(ang);
       render();
@@ -2576,7 +2601,6 @@ window.addEventListener('pointerup', (e)=>{
     refreshProps();
   }
   if(drag.type==='quick' || drag.type==='paint'){
-    autoSwitchSelMode();
     updateStepGuide();
     updateFloatingSelButton();
   }
@@ -2632,13 +2656,44 @@ function exportImage(){
     octx.drawImage(bgImage, 0, 0, fullW, fullH);
     drawItemsFull(octx, es);
   }
+  const dataUrl = out.toDataURL('image/png');
+  if(isMobile){
+    // 手机端：弹预览大图，长按保存 / 分享
+    showExportPreview(dataUrl);
+    toast('导出完成，长按图片可保存到相册');
+    return;
+  }
   const a = document.createElement('a');
   a.download = (mode === 'transparent' ? '痛包排版_透明背景_' : '痛包模拟_') +
     new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.png';
-  a.href = out.toDataURL('image/png');
+  a.href = dataUrl;
   a.click();
   toast(mode === 'transparent' ? '已导出透明背景 PNG（原始分辨率）' : '已导出 PNG（原始分辨率）');
 }
+
+// 手机端导出预览：大图 + 长按保存 / 系统分享
+function showExportPreview(dataUrl){
+  $('exportPreviewImg').src = dataUrl;
+  $('btnExportShare').style.display = (navigator.share && navigator.share.canShare) ? '' : 'none';
+  $('exportModal').classList.add('show');
+}
+function dataUrlToBlob(dataUrl){
+  const parts = dataUrl.split(',');
+  const mime = (parts[0].match(/:(.*?);/) || [,'image/png'])[1];
+  const bin = atob(parts[1]);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++){ arr[i] = bin.charCodeAt(i); }
+  return new Blob([arr], {type:mime});
+}
+$('btnExportPreviewClose').addEventListener('click', ()=> $('exportModal').classList.remove('show'));
+$('btnExportShare').addEventListener('click', ()=>{
+  try {
+    const file = new File([dataUrlToBlob($('exportPreviewImg').src)], '痛包排版.png', {type:'image/png'});
+    navigator.share({ files: [file] }).catch(()=>{});
+  } catch(e){
+    toast('长按图片可保存到相册');
+  }
+});
 
 /* ============ 保存 / 加载项目 ============ */
 function imgToDataURL(img){
@@ -2781,7 +2836,6 @@ $('btnFloatSel').addEventListener('click', ()=>{
     pushUndoMask();
     rasterizeLasso(lassoPoints);
     lassoPoints = [];
-    autoSwitchSelMode();
     updateStepGuide();
     render();
     updateFloatingSelButton();
@@ -2796,7 +2850,6 @@ $('btnCloseLasso').addEventListener('click', ()=>{
   pushUndoMask();
   rasterizeLasso(lassoPoints);
   lassoPoints = [];
-  autoSwitchSelMode();
   updateStepGuide();
   render();
   updateFloatingSelButton();
@@ -2879,7 +2932,6 @@ $('freeMarkCanvas').addEventListener('pointerdown', (e)=>{
     freeDrag = { type:'lasso' };
     drawFreeMarkPreview();
   } else if(freeTool==='paint'){
-    if(freeSelMode==='new'){ freeMaskData = null; }
     freePaintLast = p;
     freePaintStamp(p.x, p.y);
     drawFreeMarkPreview();
@@ -3125,6 +3177,8 @@ document.addEventListener('pointerdown', (e)=>{
   if(e.target.closest && e.target.closest('#stepBar')) return;
   if(e.target.closest && e.target.closest('#btnUndoMobile')) return;
   if(e.target.closest && e.target.closest('#btnRedoMobile')) return;
+  // 点画面中央提示（用于导入）时不先关面板，保证选图手势干净触发
+  if(e.target.closest && e.target.closest('#stageHint')) return;
   closeMobileSheet();
 });
 
@@ -3169,6 +3223,7 @@ renderLayers();
 render();
 updateStepGuide();
 setTool('select');
+syncUndoRedoButtons();
 if(isMobile){
   // 手机端刚打开时直接弹出第一步「导入痛包正视图」面板
   applyMobileGroup('s1');
