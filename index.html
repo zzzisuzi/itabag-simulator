@@ -190,18 +190,6 @@
   .layer-row.drop-above{ box-shadow:0 -2px 0 var(--accent); }
   .layer-row.drop-below{ box-shadow:0 2px 0 var(--accent); }
   .layer-row.selected{ border-color:var(--accent); background:#20243a; }
-  /* 长按拖拽：原行变"待落位空槽"，ghost 跟手 */
-  .layer-row.sorting{
-    opacity:.25;
-    border:1.5px dashed var(--accent);
-    background:rgba(91,140,255,.08);
-  }
-  .layer-ghost{
-    position:fixed; z-index:100; pointer-events:none;
-    box-shadow:0 8px 24px rgba(0,0,0,.5);
-    opacity:.95; transform:scale(1.03); transform-origin:center;
-  }
-  #layersList.drag-lock{ overflow:hidden; }
   .layer-thumb{
     width:34px; height:34px; border-radius:5px; background:#0c0d10 center/cover no-repeat;
     flex:none; border:1px solid var(--line);
@@ -1765,21 +1753,28 @@ function drawCropPreview(){
   if(!cropImage){ return; }
   const iw = imgW(cropImage), ih = imgH(cropImage);
   const maxW = 560, maxH = 420;
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
   const s = Math.min(maxW/iw, maxH/ih, 1);
-  c.width = Math.max(1, Math.round(iw*s));
-  c.height = Math.max(1, Math.round(ih*s));
+  const dw = Math.max(1, Math.round(iw*s));   // 显示尺寸（逻辑像素）
+  const dh = Math.max(1, Math.round(ih*s));
+  // 高分屏（Retina/手机）清晰渲染：实际像素按 dpr 放大，逻辑坐标保持不变
+  c.width = Math.max(1, Math.round(dw*dpr));
+  c.height = Math.max(1, Math.round(dh*dpr));
+  c.style.width = dw + 'px';
+  c.style.height = dh + 'px';
+  cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   // 棋盘格打底：透明部分（PNG 透明区域）显示为棋盘格，便于看清边缘
-  checkerboardInto(cctx, c.width, c.height);
-  cctx.drawImage(cropImage, 0, 0, c.width, c.height);
-  const sx = c.width/iw, sy = c.height/ih;
+  checkerboardInto(cctx, dw, dh);
+  cctx.drawImage(cropImage, 0, 0, dw, dh);
+  const sx = dw/iw, sy = dh/ih;
   const rx = cropRect.x0*sx, ry = cropRect.y0*sy;
   const rw = (cropRect.x1-cropRect.x0)*sx, rh = (cropRect.y1-cropRect.y0)*sy;
   // 暗化外部
   cctx.fillStyle = 'rgba(0,0,0,0.55)';
-  cctx.fillRect(0,0,c.width,ry);
-  cctx.fillRect(0,ry+rh,c.width,c.height-(ry+rh));
+  cctx.fillRect(0,0,dw,ry);
+  cctx.fillRect(0,ry+rh,dw,dh-(ry+rh));
   cctx.fillRect(0,ry,rx,rh);
-  cctx.fillRect(rx+rw,ry,c.width-(rx+rw),rh);
+  cctx.fillRect(rx+rw,ry,dw-(rx+rw),rh);
   // 裁剪框内三分参考线
   cctx.strokeStyle = 'rgba(255,255,255,0.35)';
   cctx.lineWidth = 1;
@@ -1811,11 +1806,11 @@ $('cropCanvas').addEventListener('pointerdown', (e)=>{
   const c = $('cropCanvas');
   const r = c.getBoundingClientRect();
   const iw = imgW(cropImage), ih = imgH(cropImage);
-  const px = (e.clientX - r.left) * (c.width / r.width);
-  const py = (e.clientY - r.top) * (c.height / r.height);
+  const px = (e.clientX - r.left);      // CSS px（与显示尺寸一致）
+  const py = (e.clientY - r.top);
   const ox = (e.clientX - r.left) * (iw / r.width);
   const oy = (e.clientY - r.top) * (ih / r.height);
-  const sx = c.width/iw, sy = c.height/ih;
+  const sx = r.width/iw, sy = r.height/ih;   // CSS px per image px
   const rx = cropRect.x0*sx, ry = cropRect.y0*sy;
   const rw = (cropRect.x1-cropRect.x0)*sx, rh = (cropRect.y1-cropRect.y0)*sy;
   const tol = 18;
@@ -1874,11 +1869,10 @@ function cancelCrop(){
 $('btnCropConfirm').addEventListener('click', confirmCrop);
 $('btnCropCancel').addEventListener('click', cancelCrop);
 
-function drawFreeMarkLine(cctx){
+function drawFreeMarkLine(cctx, dw, dh){
   const img = pendingItem.img;
-  const c = $('freeMarkCanvas');
-  const sx = c.width / imgW(img);
-  const sy = c.height / imgH(img);
+  const sx = dw / imgW(img);
+  const sy = dh / imgH(img);
   const x1 = freeMark.x1*sx, y1 = freeMark.y1*sy, x2 = freeMark.x2*sx, y2 = freeMark.y2*sy;
   // 与「② 标定比例」的标定线完全一致：蓝色虚线 + 白边圆点端点，不显示数值
   cctx.save();
@@ -1953,28 +1947,36 @@ function drawFreeMarkPreview(){
   $('freeMarkHint').style.display = 'none';
   const iw = imgW(img), ih = imgH(img);
   const maxW = 590, maxH = 420;
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
   const s = Math.min(maxW/iw, maxH/ih, 1);
-  c.width = Math.max(1, Math.round(iw*s));
-  c.height = Math.max(1, Math.round(ih*s));
-  checkerboardInto(cctx, c.width, c.height);
-  cctx.drawImage(img, 0, 0, c.width, c.height);
-  freeDrawSelectionOverlay(cctx, c.width, c.height);
+  const dw = Math.max(1, Math.round(iw*s));   // 逻辑显示尺寸
+  const dh = Math.max(1, Math.round(ih*s));
+  // 高分屏清晰渲染：实际像素按 dpr 放大，逻辑坐标不变
+  c.width = Math.max(1, Math.round(dw*dpr));
+  c.height = Math.max(1, Math.round(dh*dpr));
+  c.style.width = dw + 'px';
+  c.style.height = dh + 'px';
+  cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  checkerboardInto(cctx, dw, dh);
+  cctx.drawImage(img, 0, 0, dw, dh);
+  freeDrawSelectionOverlay(cctx, dw, dh);
   // 套索预览
   if(freeLassoPoints.length){
+    const sx = dw/iw, sy = dh/ih;
     cctx.save();
     cctx.strokeStyle='#5b8cff'; cctx.lineWidth=1.5; cctx.setLineDash([5,4]);
     cctx.beginPath();
-    cctx.moveTo(freeLassoPoints[0].x*s, freeLassoPoints[0].y*s);
-    for(let i=1;i<freeLassoPoints.length;i++) cctx.lineTo(freeLassoPoints[i].x*s, freeLassoPoints[i].y*s);
+    cctx.moveTo(freeLassoPoints[0].x*sx, freeLassoPoints[0].y*sy);
+    for(let i=1;i<freeLassoPoints.length;i++) cctx.lineTo(freeLassoPoints[i].x*sx, freeLassoPoints[i].y*sy);
     cctx.stroke();
     cctx.setLineDash([]);
     for(const p of freeLassoPoints){
-      cctx.beginPath(); cctx.arc(p.x*s, p.y*s, 4, 0, Math.PI*2);
+      cctx.beginPath(); cctx.arc(p.x*sx, p.y*sy, 4, 0, Math.PI*2);
       cctx.fillStyle='#5b8cff'; cctx.fill();
     }
     cctx.restore();
   }
-  if(freeMark){ drawFreeMarkLine(cctx); }
+  if(freeMark){ drawFreeMarkLine(cctx, dw, dh); }
 }
 
 function freeCanvasPoint(e){
@@ -2229,6 +2231,7 @@ function renderLayers(){
   for(const it of topFirst){
     const row = document.createElement('div');
     row.className = 'layer-row' + (it.id===selectedId ? ' selected':'');
+    row.draggable = true;
     row.dataset.id = it.id;
 
     const thumb = document.createElement('div');
@@ -2256,7 +2259,6 @@ function renderLayers(){
     list.appendChild(row);
 
     row.addEventListener('click', (e)=>{
-      if(_suppressLayerClick){ _suppressLayerClick = false; return; }
       if(e.target.closest('.layer-icon')) return;
       selectedId = it.id;
       setTool('select');
@@ -2289,114 +2291,46 @@ function renderLayers(){
       renderLayers(); render(); refreshProps();
     });
 
-    // 长按拖拽排序（Pointer Events，iOS/Android 通用）
-    row.addEventListener('pointerdown', (e)=>{
-      if(!e.isPrimary) return;
-      if(e.target.closest('.layer-icon')) return;
-      _layerPress = { id: it.id, el: row, startX: e.clientX, startY: e.clientY, timer: null };
-      try { row.setPointerCapture(e.pointerId); } catch(_){}
-      _layerPress.timer = setTimeout(()=>{
-        if(_layerPress && _layerPress.id === it.id){
-          _layerPress = null;
-          layerDragStart(row, it.id, e.clientY);
-        }
-      }, 250);
+    // 拖拽排序
+    row.addEventListener('dragstart', (e)=>{
+      e.dataTransfer.setData('text/plain', it.id);
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('dragging');
+      _dragId = it.id;
     });
-    row.addEventListener('pointermove', (e)=>{
-      if(_layerDrag && _layerDrag.id === it.id){
-        e.preventDefault();
-        layerDragMove(e.clientY);
-        return;
-      }
-      if(_layerPress && _layerPress.id === it.id){
-        const dx = e.clientX - _layerPress.startX, dy = e.clientY - _layerPress.startY;
-        if(Math.abs(dx) + Math.abs(dy) > 8){
-          clearTimeout(_layerPress.timer);
-          const pr = _layerPress;
-          _layerPress = null;
-          if(e.pointerType === 'mouse'){ layerDragStart(row, it.id, e.clientY); } // 桌面鼠标：直接拖
-          // 触摸：当作列表滚动，取消拖拽
-        }
-      }
+    row.addEventListener('dragend', ()=>{ row.classList.remove('dragging'); renderLayers(); });
+    row.addEventListener('dragover', (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      const r = row.getBoundingClientRect();
+      const before = (e.clientY - r.top) < r.height/2;
+      row.classList.remove('drop-above','drop-below');
+      row.classList.add(before ? 'drop-above':'drop-below');
     });
-    row.addEventListener('pointerup', (e)=>{
-      if(_layerDrag && _layerDrag.id === it.id){ layerDragEnd(); return; }
-      if(_layerPress && _layerPress.id === it.id){ clearTimeout(_layerPress.timer); _layerPress = null; }
-    });
-    row.addEventListener('pointercancel', ()=>{
-      if(_layerPress && _layerPress.id === it.id){ clearTimeout(_layerPress.timer); _layerPress = null; }
-      if(_layerDrag && _layerDrag.id === it.id){ layerDragCancel(); }
+    row.addEventListener('dragleave', ()=>{ row.classList.remove('drop-above','drop-below'); });
+    row.addEventListener('drop', (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      row.classList.remove('drop-above','drop-below');
+      const dragId = e.dataTransfer.getData('text/plain') || _dragId;
+      if(!dragId || dragId===it.id) return;
+      const r = row.getBoundingClientRect();
+      const before = (e.clientY - r.top) < r.height/2;
+      reorderLayer(dragId, it.id, before);
     });
   }
 }
 
-// 长按拖拽排序状态与逻辑（Pointer Events 实现，跟手 + 自动腾位）
-let _layerPress = null;        // { id, el, startX, startY, timer }
-let _layerDrag = null;         // { id, el, ghost, list, offsetY }
-let _suppressLayerClick = false;
-
-function layerDragStart(el, id, clientY){
-  const list = $('layersList');
-  const rect = el.getBoundingClientRect();
-  el.classList.add('sorting');
-  const ghost = el.cloneNode(true);
-  ghost.classList.remove('sorting','selected');
-  ghost.classList.add('layer-ghost');
-  ghost.style.width = rect.width + 'px';
-  ghost.style.height = rect.height + 'px';
-  ghost.style.left = rect.left + 'px';
-  ghost.style.top = rect.top + 'px';
-  document.body.appendChild(ghost);
-  list.classList.add('drag-lock');
-  _layerDrag = { id, el, ghost, list, offsetY: clientY - rect.top };
-}
-function layerDragMove(clientY){
-  const d = _layerDrag;
-  if(!d) return;
-  d.ghost.style.top = (clientY - d.offsetY) + 'px';
-  // 移动原行（sorting 占位槽）到手指对应位置，其余行自动腾位
-  const rows = [...d.list.children].filter(x => x !== d.el);
-  let target = null;
-  for(const r of rows){
-    const b = r.getBoundingClientRect();
-    if(clientY < b.top + b.height/2){ target = r; break; }
-  }
-  if(target){ d.list.insertBefore(d.el, target); }
-  else { d.list.appendChild(d.el); }
-}
-function layerDragEnd(){
-  const d = _layerDrag;
-  if(!d) return;
-  const list = d.list;
-  const domIdx = [...list.children].indexOf(d.el);   // 顶层在前，插入下标
-  const dragItem = items.find(i => i.id === d.id);
-  if(dragItem && domIdx >= 0){
-    const curTopIdx = items.length - 1 - items.indexOf(dragItem);  // 当前顶层下标
-    if(domIdx !== curTopIdx){
-      pushUndo();
-      const rest = items.filter(i => i.id !== d.id);
-      const topFirst = [...rest].reverse();
-      topFirst.splice(domIdx, 0, dragItem);
-      items = topFirst.reverse();
-      _suppressLayerClick = true;
-      renderLayers(); render();
-    } else {
-      renderLayers();
-    }
-  } else {
-    renderLayers();
-  }
-  d.ghost.remove();
-  list.classList.remove('drag-lock');
-  _layerDrag = null;
-}
-function layerDragCancel(){
-  const d = _layerDrag;
-  if(!d) return;
-  d.ghost.remove();
-  d.list.classList.remove('drag-lock');
-  _layerDrag = null;
-  renderLayers();
+let _dragId = null;
+function reorderLayer(dragId, overId, before){
+  const dragItem = items.find(i=>i.id===dragId);
+  const overItem = items.find(i=>i.id===overId);
+  if(!dragItem || !overItem) return;
+  pushUndo();
+  items = items.filter(i=>i.id!==dragId);
+  let overIdx = items.indexOf(overItem);
+  const insertAt = before ? overIdx+1 : overIdx;
+  items.splice(insertAt, 0, dragItem);
+  renderLayers(); render();
 }
 
 // 复制图层：新图层紧贴在原图层之上，共享同一张图片资源
