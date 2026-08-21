@@ -190,6 +190,18 @@
   .layer-row.drop-above{ box-shadow:0 -2px 0 var(--accent); }
   .layer-row.drop-below{ box-shadow:0 2px 0 var(--accent); }
   .layer-row.selected{ border-color:var(--accent); background:#20243a; }
+  /* 长按拖拽：原行变"待落位空槽"，ghost 跟手 */
+  .layer-row.sorting{
+    opacity:.25;
+    border:1.5px dashed var(--accent);
+    background:rgba(91,140,255,.08);
+  }
+  .layer-ghost{
+    position:fixed; z-index:100; pointer-events:none;
+    box-shadow:0 8px 24px rgba(0,0,0,.5);
+    opacity:.95; transform:scale(1.03); transform-origin:center;
+  }
+  #layersList.drag-lock{ overflow:hidden; }
   .layer-thumb{
     width:34px; height:34px; border-radius:5px; background:#0c0d10 center/cover no-repeat;
     flex:none; border:1px solid var(--line);
@@ -359,6 +371,7 @@
   html.is-mobile #canvasWrap{ overscroll-behavior:contain; }
   /* 手机端精简：隐藏长说明文字、属性卡 */
   html.is-mobile .card .hint{ display:none; }
+  html.is-mobile .card .hint#layerSortHint{ display:block; }
   html.is-mobile #propsCard{ display:none !important; }
   /* 手机端悬浮撤回按钮（左上角，与缩放条对称） */
   html.is-mobile #btnUndoMobile{
@@ -533,7 +546,7 @@
 
     <div class="card" data-group="s4">
       <h3><span class="step-num">4</span>图层（谷子/装饰品）</h3>
-      <div class="hint">每个导入的图片是一个图层。点击选中后可拖动/旋转；在上面的图层会遮挡下面。拖动图层项可排序。</div>
+      <div class="hint" id="layerSortHint">长按图层可拖拽排序（上方图层会遮挡下方）。</div>
       <div class="row">
         <button class="btn" id="btnLoadItem2">导入图片…</button>
       </div>
@@ -642,6 +655,7 @@
           <option value="add">添加到选区</option>
           <option value="sub">从选区减去</option>
         </select>
+        <button class="btn small" id="btnFreeUndo" disabled>撤回</button>
         <button class="btn small" id="btnFreeClearSel">清除抠图</button>
         <button class="btn small hidden" id="btnFreeCloseLasso">闭合选区</button>
       </div>
@@ -1417,6 +1431,7 @@ function showAddItemModal(){
   freeMark = null; freeImgData = null; freeMaskData = null;
   freeQuickRef = []; freeQuickLast = null; freePaintLast = null; freeLassoPoints = [];
   freeDrag = null; freeSelMode = 'add';
+  freeUndoStack = []; syncFreeUndoBtn();
   freeSetTool('mark');
   $('modal').classList.add('show');
 }
@@ -1547,6 +1562,32 @@ function freeEnsureMask(){
   const img = pendingItem.img;
   if(!freeMaskData) freeMaskData = new Uint8Array(imgW(img)*imgH(img));
   return freeMaskData;
+}
+
+// 异形抠图撤销栈：标长线 + 抠图选区（弹窗内独立于主画布撤销）
+let freeUndoStack = [];
+function pushFreeUndo(){
+  freeUndoStack.push({
+    mark: freeMark ? {...freeMark} : null,
+    mask: freeMaskData ? freeMaskData.slice() : null
+  });
+  if(freeUndoStack.length > 30) freeUndoStack.shift();
+  syncFreeUndoBtn();
+}
+function freeUndo(){
+  if(!freeUndoStack.length){ toast('没有可撤回的操作'); return; }
+  const s = freeUndoStack.pop();
+  freeMark = s.mark;
+  freeMaskData = s.mask;
+  freeLassoPoints = [];
+  freeQuickRef = [];
+  drawFreeMarkPreview();
+  syncFreeUndoBtn();
+  toast('已撤回');
+}
+function syncFreeUndoBtn(){
+  const b = $('btnFreeUndo');
+  if(b) b.disabled = freeUndoStack.length === 0;
 }
 
 function freeApplyVisited(vis){
@@ -2188,7 +2229,6 @@ function renderLayers(){
   for(const it of topFirst){
     const row = document.createElement('div');
     row.className = 'layer-row' + (it.id===selectedId ? ' selected':'');
-    row.draggable = true;
     row.dataset.id = it.id;
 
     const thumb = document.createElement('div');
@@ -2216,6 +2256,7 @@ function renderLayers(){
     list.appendChild(row);
 
     row.addEventListener('click', (e)=>{
+      if(_suppressLayerClick){ _suppressLayerClick = false; return; }
       if(e.target.closest('.layer-icon')) return;
       selectedId = it.id;
       setTool('select');
@@ -2248,46 +2289,114 @@ function renderLayers(){
       renderLayers(); render(); refreshProps();
     });
 
-    // 拖拽排序
-    row.addEventListener('dragstart', (e)=>{
-      e.dataTransfer.setData('text/plain', it.id);
-      e.dataTransfer.effectAllowed = 'move';
-      row.classList.add('dragging');
-      _dragId = it.id;
+    // 长按拖拽排序（Pointer Events，iOS/Android 通用）
+    row.addEventListener('pointerdown', (e)=>{
+      if(!e.isPrimary) return;
+      if(e.target.closest('.layer-icon')) return;
+      _layerPress = { id: it.id, el: row, startX: e.clientX, startY: e.clientY, timer: null };
+      try { row.setPointerCapture(e.pointerId); } catch(_){}
+      _layerPress.timer = setTimeout(()=>{
+        if(_layerPress && _layerPress.id === it.id){
+          _layerPress = null;
+          layerDragStart(row, it.id, e.clientY);
+        }
+      }, 250);
     });
-    row.addEventListener('dragend', ()=>{ row.classList.remove('dragging'); renderLayers(); });
-    row.addEventListener('dragover', (e)=>{
-      e.preventDefault(); e.stopPropagation();
-      e.dataTransfer.dropEffect = 'move';
-      const r = row.getBoundingClientRect();
-      const before = (e.clientY - r.top) < r.height/2;
-      row.classList.remove('drop-above','drop-below');
-      row.classList.add(before ? 'drop-above':'drop-below');
+    row.addEventListener('pointermove', (e)=>{
+      if(_layerDrag && _layerDrag.id === it.id){
+        e.preventDefault();
+        layerDragMove(e.clientY);
+        return;
+      }
+      if(_layerPress && _layerPress.id === it.id){
+        const dx = e.clientX - _layerPress.startX, dy = e.clientY - _layerPress.startY;
+        if(Math.abs(dx) + Math.abs(dy) > 8){
+          clearTimeout(_layerPress.timer);
+          const pr = _layerPress;
+          _layerPress = null;
+          if(e.pointerType === 'mouse'){ layerDragStart(row, it.id, e.clientY); } // 桌面鼠标：直接拖
+          // 触摸：当作列表滚动，取消拖拽
+        }
+      }
     });
-    row.addEventListener('dragleave', ()=>{ row.classList.remove('drop-above','drop-below'); });
-    row.addEventListener('drop', (e)=>{
-      e.preventDefault(); e.stopPropagation();
-      row.classList.remove('drop-above','drop-below');
-      const dragId = e.dataTransfer.getData('text/plain') || _dragId;
-      if(!dragId || dragId===it.id) return;
-      const r = row.getBoundingClientRect();
-      const before = (e.clientY - r.top) < r.height/2;
-      reorderLayer(dragId, it.id, before);
+    row.addEventListener('pointerup', (e)=>{
+      if(_layerDrag && _layerDrag.id === it.id){ layerDragEnd(); return; }
+      if(_layerPress && _layerPress.id === it.id){ clearTimeout(_layerPress.timer); _layerPress = null; }
+    });
+    row.addEventListener('pointercancel', ()=>{
+      if(_layerPress && _layerPress.id === it.id){ clearTimeout(_layerPress.timer); _layerPress = null; }
+      if(_layerDrag && _layerDrag.id === it.id){ layerDragCancel(); }
     });
   }
 }
 
-let _dragId = null;
-function reorderLayer(dragId, overId, before){
-  const dragItem = items.find(i=>i.id===dragId);
-  const overItem = items.find(i=>i.id===overId);
-  if(!dragItem || !overItem) return;
-  pushUndo();
-  items = items.filter(i=>i.id!==dragId);
-  let overIdx = items.indexOf(overItem);
-  const insertAt = before ? overIdx+1 : overIdx;
-  items.splice(insertAt, 0, dragItem);
-  renderLayers(); render();
+// 长按拖拽排序状态与逻辑（Pointer Events 实现，跟手 + 自动腾位）
+let _layerPress = null;        // { id, el, startX, startY, timer }
+let _layerDrag = null;         // { id, el, ghost, list, offsetY }
+let _suppressLayerClick = false;
+
+function layerDragStart(el, id, clientY){
+  const list = $('layersList');
+  const rect = el.getBoundingClientRect();
+  el.classList.add('sorting');
+  const ghost = el.cloneNode(true);
+  ghost.classList.remove('sorting','selected');
+  ghost.classList.add('layer-ghost');
+  ghost.style.width = rect.width + 'px';
+  ghost.style.height = rect.height + 'px';
+  ghost.style.left = rect.left + 'px';
+  ghost.style.top = rect.top + 'px';
+  document.body.appendChild(ghost);
+  list.classList.add('drag-lock');
+  _layerDrag = { id, el, ghost, list, offsetY: clientY - rect.top };
+}
+function layerDragMove(clientY){
+  const d = _layerDrag;
+  if(!d) return;
+  d.ghost.style.top = (clientY - d.offsetY) + 'px';
+  // 移动原行（sorting 占位槽）到手指对应位置，其余行自动腾位
+  const rows = [...d.list.children].filter(x => x !== d.el);
+  let target = null;
+  for(const r of rows){
+    const b = r.getBoundingClientRect();
+    if(clientY < b.top + b.height/2){ target = r; break; }
+  }
+  if(target){ d.list.insertBefore(d.el, target); }
+  else { d.list.appendChild(d.el); }
+}
+function layerDragEnd(){
+  const d = _layerDrag;
+  if(!d) return;
+  const list = d.list;
+  const domIdx = [...list.children].indexOf(d.el);   // 顶层在前，插入下标
+  const dragItem = items.find(i => i.id === d.id);
+  if(dragItem && domIdx >= 0){
+    const curTopIdx = items.length - 1 - items.indexOf(dragItem);  // 当前顶层下标
+    if(domIdx !== curTopIdx){
+      pushUndo();
+      const rest = items.filter(i => i.id !== d.id);
+      const topFirst = [...rest].reverse();
+      topFirst.splice(domIdx, 0, dragItem);
+      items = topFirst.reverse();
+      _suppressLayerClick = true;
+      renderLayers(); render();
+    } else {
+      renderLayers();
+    }
+  } else {
+    renderLayers();
+  }
+  d.ghost.remove();
+  list.classList.remove('drag-lock');
+  _layerDrag = null;
+}
+function layerDragCancel(){
+  const d = _layerDrag;
+  if(!d) return;
+  d.ghost.remove();
+  d.list.classList.remove('drag-lock');
+  _layerDrag = null;
+  renderLayers();
 }
 
 // 复制图层：新图层紧贴在原图层之上，共享同一张图片资源
@@ -2460,21 +2569,15 @@ canvas.addEventListener('pointerdown', (e)=>{
     return;
   }
   if(tool==='quick'){
+    // 懒落笔：按下不立即填充，等真正移动/抬起才画（避免双指缩放时误填选区）
     resetSelConfirm();
-    pushUndoMask();
-    quickRef = [];
-    quickLast = p;
-    quickBrushAt(p.x, p.y);
-    drag = {type:'quick'};
+    drag = {type:'quick', down:p, stamped:false};
     return;
   }
   if(tool==='paint'){
+    // 懒落笔：按下不立即画，等真正移动/抬起才落笔（避免双指缩放时误画点）
     resetSelConfirm();
-    pushUndoMask();
-    paintLast = p;
-    paintStamp(p.x, p.y);
-    schedulePaintRender();
-    drag = {type:'paint'};
+    drag = {type:'paint', down:p, stamped:false};
     return;
   }
   if(tool==='lasso'){
@@ -2553,12 +2656,28 @@ window.addEventListener('pointermove', (e)=>{
       render();
     }
   } else if(drag.type==='quick'){
+    // 第一次移动时才真正开始填充
+    if(!drag.stamped){
+      pushUndoMask();
+      quickRef = [];
+      quickLast = drag.down;
+      quickBrushAt(drag.down.x, drag.down.y);
+      drag.stamped = true;
+    }
     const brush = parseInt($('brushSize').value, 10);
     if(Math.hypot(p.x-quickLast.x, p.y-quickLast.y) >= brush*0.4){
       quickLast = p;
       quickBrushAt(p.x, p.y);
     }
   } else if(drag.type==='paint'){
+    // 第一次移动时才真正落笔
+    if(!drag.stamped){
+      pushUndoMask();
+      paintLast = drag.down;
+      paintStamp(drag.down.x, drag.down.y);
+      drag.stamped = true;
+      schedulePaintRender();
+    }
     const brush = parseInt($('brushSize').value, 10);
     const dist = Math.hypot(p.x-paintLast.x, p.y-paintLast.y);
     const step = Math.max(1, brush/3);
@@ -2613,6 +2732,19 @@ window.addEventListener('pointerup', (e)=>{
     refreshProps();
   }
   if(drag.type==='quick' || drag.type==='paint'){
+    // 轻点（未移动）也补一笔：保持"点一下画个点"的直觉
+    if(!drag.stamped){
+      pushUndoMask();
+      if(drag.type==='quick'){
+        quickRef = [];
+        quickLast = drag.down;
+        quickBrushAt(drag.down.x, drag.down.y);
+      } else {
+        paintLast = drag.down;
+        paintStamp(drag.down.x, drag.down.y);
+        schedulePaintRender();
+      }
+    }
     updateStepGuide();
     updateFloatingSelButton();
   }
@@ -2948,13 +3080,16 @@ $('freeTools').addEventListener('click', (e)=>{
 $('freeTolerance').addEventListener('input', (e)=> $('freeToleranceVal').textContent = e.target.value);
 $('freeBrushSize').addEventListener('input', (e)=> $('freeBrushSizeVal').textContent = e.target.value);
 $('freeSelMode').addEventListener('change', (e)=> freeSelMode = e.target.value);
+$('btnFreeUndo').addEventListener('click', freeUndo);
 $('btnFreeClearSel').addEventListener('click', ()=>{
+  pushFreeUndo();
   freeMaskData = null; freeLassoPoints = []; freeQuickRef = [];
   drawFreeMarkPreview();
   toast('已清除抠图选区');
 });
 $('btnFreeCloseLasso').addEventListener('click', ()=>{
   if(freeLassoPoints.length < 3){ toast('至少需要 3 个点'); return; }
+  pushFreeUndo();
   freeRasterizeLasso(freeLassoPoints);
   freeLassoPoints = [];
   drawFreeMarkPreview();
@@ -2966,10 +3101,12 @@ $('freeMarkCanvas').addEventListener('pointerdown', (e)=>{
   if(!pendingItem || !pendingItem.img || !imgW(pendingItem.img)) return;
   const p = freeCanvasPoint(e);
   if(freeTool==='mark'){
+    pushFreeUndo();               // 标长：落笔前入栈，可撤回上一条线
     freeMark = { x1:p.x, y1:p.y, x2:p.x, y2:p.y, px:0 };
     freeDrag = { type:'mark' };
     drawFreeMarkPreview();
   } else if(freeTool==='quick'){
+    pushFreeUndo();               // 快速选择：每次笔触前入栈
     freeQuickRef = [];
     freeQuickLast = p;
     freeQuickAt(p.x, p.y);
@@ -2979,6 +3116,7 @@ $('freeMarkCanvas').addEventListener('pointerdown', (e)=>{
     freeDrag = { type:'lasso' };
     drawFreeMarkPreview();
   } else if(freeTool==='paint'){
+    pushFreeUndo();               // 画笔：每次笔触前入栈
     freePaintLast = p;
     freePaintStamp(p.x, p.y);
     drawFreeMarkPreview();
