@@ -1716,8 +1716,8 @@ function openCropModal(img, cb){
   const my = Math.max(6, Math.round(h * 0.06));
   cropRect = { x0: mx, y0: my, x1: w - mx, y1: h - my };
   cropDrag = null;
-  drawCropPreview();
   $('cropModal').classList.add('show');
+  drawCropPreview();   // 先显示弹窗，容器才有尺寸，才能严格等比缩放
 }
 function closeCropModal(){
   cropImage = null; cropCallback = null; cropDrag = null;
@@ -1752,12 +1752,17 @@ function drawCropPreview(){
   const cctx = c.getContext('2d');
   if(!cropImage){ return; }
   const iw = imgW(cropImage), ih = imgH(cropImage);
-  const maxW = 560, maxH = 420;
   const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const s = Math.min(maxW/iw, maxH/ih, 1);
-  const dw = Math.max(1, Math.round(iw*s));   // 显示尺寸（逻辑像素）
+  // 按容器实际尺寸严格等比缩放，避免 max-width/height 独立压缩导致变形
+  const wr = $('cropWrap').getBoundingClientRect();
+  let capW = 560;
+  if(wr.width > 60) capW = Math.min(560, wr.width - 16);
+  let capH = 420;
+  if(isMobile && wr.height > 60) capH = Math.min(420, wr.height - 16);
+  const s = Math.min(capW/iw, capH/ih, 1);
+  const dw = Math.max(1, Math.round(iw*s));   // 逻辑显示尺寸（严格等比）
   const dh = Math.max(1, Math.round(ih*s));
-  // 高分屏（Retina/手机）清晰渲染：实际像素按 dpr 放大，逻辑坐标保持不变
+  // 高分屏清晰渲染：实际像素按 dpr 放大，逻辑坐标保持不变
   c.width = Math.max(1, Math.round(dw*dpr));
   c.height = Math.max(1, Math.round(dh*dpr));
   c.style.width = dw + 'px';
@@ -1946,10 +1951,15 @@ function drawFreeMarkPreview(){
   }
   $('freeMarkHint').style.display = 'none';
   const iw = imgW(img), ih = imgH(img);
-  const maxW = 590, maxH = 420;
   const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const s = Math.min(maxW/iw, maxH/ih, 1);
-  const dw = Math.max(1, Math.round(iw*s));   // 逻辑显示尺寸
+  // 按容器实际尺寸严格等比缩放，避免变形
+  const wr = $('freeMarkWrap').getBoundingClientRect();
+  let capW = 590;
+  if(wr.width > 60) capW = Math.min(590, wr.width - 16);
+  let capH = 420;
+  if(isMobile && wr.height > 60) capH = Math.min(420, wr.height - 16);
+  const s = Math.min(capW/iw, capH/ih, 1);
+  const dw = Math.max(1, Math.round(iw*s));   // 逻辑显示尺寸（严格等比）
   const dh = Math.max(1, Math.round(ih*s));
   // 高分屏清晰渲染：实际像素按 dpr 放大，逻辑坐标不变
   c.width = Math.max(1, Math.round(dw*dpr));
